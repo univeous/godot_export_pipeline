@@ -10,11 +10,14 @@ pwsh addons/export_pipeline/release.ps1 -GodotExe C:\godot\godot.exe -Preset "Wi
 #>
 param(
     [Parameter(Mandatory)] [string]$GodotExe,
-    [string]$ProjectPath = (Split-Path $PSScriptRoot -Parent),
+    # Script lives at <project>/addons/export_pipeline/release.ps1.
+    [string]$ProjectPath = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
     [string]$Preset = "Windows Desktop",
     [string]$OutputPck = "$env:TEMP\release_verify\game.pck",
-    # Optional: a (custom) export template exe; enables the smoke-run stage.
+    # Export template exe for smoke-run + artifact assembly. When omitted,
+    # the newest exe in <project>/tools/templates/ is auto-discovered.
     [string]$TemplateExe = "",
+    [string]$ArtifactDir = "$env:TEMP\release_verify\artifact",
     [int]$SmokeFrames = 300
 )
 # "Continue", not "Stop": with Stop, redirected native stderr (Godot's normal
@@ -105,7 +108,20 @@ if ($missing.Count) { $missing | Select-Object -First 10 | ForEach-Object { Writ
 
 # ── 3. Smoke-run on the (custom) template ───────────────────────────────────
 if ($TemplateExe -eq "") {
-    Write-Host "   (no -TemplateExe given — smoke stage skipped)" -ForegroundColor Yellow
+    # Auto-discover a self-built trimmed template (see build_profile_gen).
+    $tplDir = Join-Path $ProjectPath "tools\templates"
+    $tpl = if (Test-Path $tplDir) { Get-ChildItem $tplDir -Filter *.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1 }
+    if ($tpl) {
+        $TemplateExe = $tpl.FullName
+        Write-Host "   auto-discovered template: tools/templates/$($tpl.Name)"
+        $profilePath = Join-Path $ProjectPath "tools\engine.build"
+        if ((Test-Path $profilePath) -and $tpl.LastWriteTime -lt (Get-Item $profilePath).LastWriteTime) {
+            Fail "template $($tpl.Name) is OLDER than tools/engine.build — recompile it (Project > Tools > Generate Build Profile prints the scons command)"
+        }
+    }
+}
+if ($TemplateExe -eq "") {
+    Write-Host "   (no template given or discovered — smoke stage skipped)" -ForegroundColor Yellow
 } else {
     Stage "Smoke-running $SmokeFrames frames on $(Split-Path $TemplateExe -Leaf)"
     $smokeDir = "$env:TEMP\release_verify\smoke"
@@ -120,6 +136,15 @@ if ($TemplateExe -eq "") {
         Where-Object { $_.Line -notmatch $benign })
     Write-Host "   smoke exit: $($p.ExitCode) | real errors: $($errors.Count)"
     if ($errors.Count) { $errors | Select-Object -First 10 | ForEach-Object { Write-Host "   $_" -ForegroundColor Red }; Fail "smoke run produced errors" }
+
+    # ── 4. Assemble the shippable artifact (template exe + pck) ────────────
+    Stage "Assembling artifact"
+    New-Item -ItemType Directory -Force $ArtifactDir | Out-Null
+    $gameName = [IO.Path]::GetFileNameWithoutExtension($OutputPck)
+    Copy-Item $TemplateExe (Join-Path $ArtifactDir "$gameName.exe") -Force
+    Copy-Item $OutputPck (Join-Path $ArtifactDir "$gameName.pck") -Force
+    $total = (Get-ChildItem $ArtifactDir | Measure-Object Length -Sum).Sum
+    Write-Host "   $ArtifactDir ($([math]::Round($total/1MB,1)) MB total)"
 }
 
 Stage "RELEASE OK — $OutputPck ($([math]::Round((Get-Item $OutputPck).Length/1MB,1)) MB)"

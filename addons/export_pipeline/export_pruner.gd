@@ -144,6 +144,7 @@ func _export_begin(features: PackedStringArray, is_debug: bool, path: String, fl
 		print("[export_pruner] dropped from exported settings: %s" % ", ".join(_removed_autoloads.keys()))
 
 	_warn_if_build_profile_stale(report)
+	_report_template_status()
 
 	_enabled = true
 	print("[export_pruner] pruning %d unused files (report generated %s, %d warnings)." % [
@@ -296,6 +297,37 @@ func _autoloads_to_drop(config: Dictionary) -> Array[String]:
 				drop.append(pname)
 				break
 	return drop
+
+
+## Self-built trimmed export templates live in res://tools/templates/ by
+## convention. Export plugins cannot switch the preset's template mid-export
+## (no scripting API for presets), so this reports the situation instead:
+## the preset's custom_template must point at the template once, and
+## release.ps1 auto-discovers it for smoke runs and artifact assembly.
+func _report_template_status() -> void:
+	if not FileAccess.file_exists(BUILD_PROFILE_PATH):
+		return
+	var newest := ""
+	var newest_time := 0
+	var dir := DirAccess.open("res://tools/templates")
+	if dir:
+		dir.list_dir_begin()
+		var name := dir.get_next()
+		while name != "":
+			if not dir.current_is_dir() and name.get_extension() == "exe":
+				var t := FileAccess.get_modified_time("res://tools/templates/" + name)
+				if t > newest_time:
+					newest_time = t
+					newest = name
+			name = dir.get_next()
+		dir.list_dir_end()
+	if newest.is_empty():
+		print("[export_pruner] no self-built template in res://tools/templates/ — the stock export template is used (Project > Tools > Generate Build Profile to build a trimmed one).")
+		return
+	if newest_time < FileAccess.get_modified_time(BUILD_PROFILE_PATH):
+		push_warning("[export_pruner] self-built template tools/templates/%s is OLDER than tools/engine.build — recompile it, or the exported game may miss engine classes." % newest)
+	else:
+		print("[export_pruner] up-to-date self-built template: tools/templates/%s (make sure the preset's custom_template points at it, or ship via release.ps1)." % newest)
 
 
 ## Settings owned by addons excluded via editor-only prefixes. Best-effort

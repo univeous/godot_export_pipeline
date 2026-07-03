@@ -141,9 +141,16 @@ func _init() -> void:
 		"disabled_build_options": {"disable_3d": not uses_3d},
 		"disabled_classes": disabled,
 	}
-	var f := FileAccess.open(PROFILE_PATH, FileAccess.WRITE)
-	f.store_string(JSON.stringify(profile, "\t") + "\n")
-	f.close()
+	# Write-if-changed: the profile's mtime is the freshness reference for
+	# self-built templates (export_pruner / release.ps1 compare against it),
+	# so an unchanged regeneration must not bump it.
+	var content := JSON.stringify(profile, "\t") + "\n"
+	if FileAccess.get_file_as_string(PROFILE_PATH) != content:
+		var f := FileAccess.open(PROFILE_PATH, FileAccess.WRITE)
+		f.store_string(content)
+		f.close()
+	else:
+		print("[build_profile_gen] profile unchanged - %s left untouched." % PROFILE_PATH)
 
 	var config := {}
 	if FileAccess.file_exists("res://tools/export_analyzer.json"):
