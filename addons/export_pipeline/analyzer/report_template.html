@@ -55,7 +55,11 @@ details .files { margin: 4px 0 8px 24px; color: var(--dim); font-size: 13px; }
 details .files div { padding: 1px 0; overflow-wrap: anywhere; }
 .tree { margin-left: 18px; }
 .tree.root { margin-left: 0; }
-.tree > div:not(.tree) { padding: 1px 0 1px 8px; color: var(--dim); font-size: 13px; overflow-wrap: anywhere; }
+.tree > div:not(.tree) {
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+  padding: 1px 0 1px 8px; color: var(--dim); font-size: 13px; overflow-wrap: anywhere;
+}
+.tree > div:not(.tree) > .size { margin-left: auto; }
 .tree details { margin-top: 2px; }
 .size { color: var(--dim); font-size: 12px; margin-left: auto; white-space: nowrap; }
 .path { color: var(--accent); }
@@ -304,8 +308,9 @@ function refChip(r) {
 
 $("used-count").textContent = `${T.used_count} files · ${humanSize(T.used_size)}`;
 renderDirGroups($("used-list"), REPORT.used, (p) =>
-  `<div>${esc(p.substring(p.lastIndexOf("/") + 1))} <span class="size">${humanSize(REPORT.sizes[p] || 0)}</span>` +
-  ` &larr; ${(REPORT.referrers[p] || []).map(refChip).join("")}</div>`);
+  `<div><span>${esc(p.substring(p.lastIndexOf("/") + 1))}</span>` +
+  ` <span>&larr;</span> ${(REPORT.referrers[p] || []).map(refChip).join("")}` +
+  `<span class="size">${humanSize(REPORT.sizes[p] || 0)}</span></div>`);
 
 $("class-count").textContent = REPORT.engine_classes.length;
 $("class-list").innerHTML = REPORT.engine_classes.map((c) => `<span class="chip">${esc(c)}</span>`).join("");
