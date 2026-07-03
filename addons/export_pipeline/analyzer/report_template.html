@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Export reachability report</title>
+<style>
+:root {
+  --bg: #16181d; --panel: #1e2128; --panel2: #262a33; --text: #d6dae2;
+  --dim: #8b93a3; --accent: #5aa9e6; --ok: #62c073; --warn: #e0a458;
+  --bad: #e06c75; --border: #333845;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 24px; background: var(--bg); color: var(--text);
+  font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+}
+h1 { font-size: 20px; margin: 0 0 4px; }
+h2 { font-size: 15px; margin: 0; font-weight: 600; }
+#meta { color: var(--dim); margin-bottom: 16px; }
+#cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; }
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  padding: 12px 18px; min-width: 160px;
+}
+.card .num { font-size: 22px; font-weight: 700; }
+.card .sub { color: var(--dim); font-size: 12px; }
+.card.ok .num { color: var(--ok); } .card.bad .num { color: var(--bad); }
+.card.warn .num { color: var(--warn); }
+section {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 14px; padding: 14px 18px;
+}
+/* used/unused get tinted backgrounds so the two lists read apart at a glance */
+#sec-unused { background: #251d20; border-color: #4a3238; }
+#sec-unused > .head h2 { color: var(--bad); }
+#sec-unused details > summary { background: #2e2429; }
+#sec-unused details > summary:hover { background: #382c32; }
+#sec-used { background: #1c231f; border-color: #2e4234; }
+#sec-used > .head h2 { color: var(--ok); }
+#sec-used details > summary { background: #232b26; }
+#sec-used details > summary:hover { background: #2b352f; }
+section > .head { display: flex; align-items: baseline; gap: 12px; }
+.count { color: var(--dim); font-size: 12px; }
+label.toggle { color: var(--dim); font-size: 12px; margin-left: auto; cursor: pointer; user-select: none; }
+ul { margin: 10px 0 0; padding-left: 20px; }
+li { margin: 2px 0; overflow-wrap: anywhere; }
+li.warn { color: var(--warn); }
+details { margin-top: 8px; }
+details > summary {
+  cursor: pointer; padding: 4px 8px; border-radius: 5px; background: var(--panel2);
+  display: flex; gap: 10px; align-items: baseline;
+}
+details > summary:hover { background: #2c313c; }
+details .files { margin: 4px 0 8px 24px; color: var(--dim); font-size: 13px; }
+details .files div { padding: 1px 0; overflow-wrap: anywhere; }
+.tree { margin-left: 18px; }
+.tree.root { margin-left: 0; }
+.tree > div:not(.tree) { padding: 1px 0 1px 8px; color: var(--dim); font-size: 13px; overflow-wrap: anywhere; }
+.tree details { margin-top: 2px; }
+.size { color: var(--dim); font-size: 12px; margin-left: auto; white-space: nowrap; }
+.path { color: var(--accent); }
+.ref { color: var(--dim); }
+.chip {
+  display: inline-block; background: var(--panel2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 0 8px; margin: 2px; font-size: 12px;
+  max-width: 280px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; vertical-align: bottom;
+}
+.chip.dead { color: var(--bad); border-color: #5a3a40; }
+.chip.kept { color: var(--warn); }
+.chip.ref { color: var(--dim); font-size: 11px; padding: 0 6px; cursor: default; }
+.chip.root { color: var(--accent); font-size: 11px; padding: 0 6px; border-color: #2e4a63; cursor: default; }
+.bar { height: 6px; border-radius: 3px; background: var(--bad); margin: 6px 0; overflow: hidden; }
+.bar > div { height: 100%; background: var(--ok); }
+pre { background: var(--panel2); padding: 10px; border-radius: 6px; overflow: auto; font-size: 12px; }
+.muted { color: var(--dim); }
+</style>
+</head>
+<body>
+<h1>Export reachability report</h1>
+<div id="meta"></div>
+<div id="cards"></div>
+<section id="sec-warnings" hidden>
+  <div class="head"><h2>Warnings</h2><span class="count" id="warn-count"></span>
+    <label class="toggle"><input type="checkbox" id="show-addon-warn"> show addon warnings (<span id="addon-warn-count">0</span> hidden)</label>
+  </div>
+  <ul id="warning-list"></ul>
+</section>
+<section id="sec-registries" hidden>
+  <div class="head"><h2>Asset registries</h2><span class="count" id="reg-count"></span></div>
+  <div id="registry-list"></div>
+</section>
+<section id="sec-tilesets" hidden>
+  <div class="head"><h2>Tileset tree-shaking</h2><span class="count" id="ts-count"></span></div>
+  <div id="tileset-list"></div>
+</section>
+<section id="sec-extensions" hidden>
+  <div class="head"><h2>Other extensions</h2></div>
+  <div id="extension-list"></div>
+</section>
+<section id="sec-unused">
+  <div class="head"><h2>Unused resources</h2><span class="count" id="unused-count"></span></div>
+  <div id="unused-list"></div>
+</section>
+<section id="sec-used">
+  <div class="head"><h2>Used files</h2><span class="count" id="used-count"></span></div>
+  <div id="used-list"></div>
+</section>
+<section id="sec-classes">
+  <div class="head"><h2>Engine classes referenced</h2><span class="count" id="class-count"></span></div>
+  <div id="class-list"></div>
+</section>
+<script>
+const REPORT = {{REPORT_JSON}};
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function humanSize(n) {
+  if (n < 1024) return n + " B";
+  const units = ["KiB", "MiB", "GiB"];
+  let i = -1;
+  do { n /= 1024; i++; } while (n >= 1024 && i < units.length - 1);
+  return n.toFixed(n >= 100 ? 0 : 1) + " " + units[i];
+}
+
+// Builds a directory trie with per-node aggregate counts/sizes.
+function buildTree(paths) {
+  const mk = () => ({ dirs: new Map(), files: [], size: 0, count: 0 });
+  const root = mk();
+  for (const p of paths) {
+    const parts = p.replace("res://", "").split("/");
+    const size = REPORT.sizes[p] || 0;
+    let node = root;
+    node.size += size; node.count++;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (!node.dirs.has(parts[i])) node.dirs.set(parts[i], mk());
+      node = node.dirs.get(parts[i]);
+      node.size += size; node.count++;
+    }
+    node.files.push(p);
+  }
+  return root;
+}
+
+// Chains of single-child directories collapse into one node ("game/scenes/ui").
+function renderTree(node, fileLine, depth) {
+  let html = "";
+  const dirs = [...node.dirs.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  for (let [name, child] of dirs) {
+    while (child.dirs.size === 1 && child.files.length === 0) {
+      const [subName, sub] = child.dirs.entries().next().value;
+      name += "/" + subName;
+      child = sub;
+    }
+    html += `<details${depth === 0 ? " open" : ""}><summary><span class="path">${esc(name)}/</span>` +
+      `<span class="count">${child.count} files</span><span class="size">${humanSize(child.size)}</span></summary>` +
+      `<div class="tree">${renderTree(child, fileLine, depth + 1)}</div></details>`;
+  }
+  html += node.files.sort().map(fileLine).join("");
+  return html;
+}
+
+function renderDirGroups(el, paths, fileLine) {
+  el.innerHTML = paths.length
+    ? `<div class="tree root">${renderTree(buildTree(paths), fileLine, 0)}</div>`
+    : '<div class="muted">none</div>';
+}
+
+// ── header ──────────────────────────────────────────────────────────────
+const T = REPORT.totals;
+$("meta").textContent = `${REPORT.project} — generated ${REPORT.generated}`;
+$("cards").innerHTML = `
+  <div class="card ok"><div class="num">${T.used_count}</div><div class="sub">used files · ${humanSize(T.used_size)}</div></div>
+  <div class="card bad"><div class="num">${T.unused_count}</div><div class="sub">unused files · ${humanSize(T.unused_size)}</div></div>
+  <div class="card warn"><div class="num">${REPORT.warnings.length}</div><div class="sub">warnings</div></div>
+  <div class="card"><div class="num">${REPORT.engine_classes.length}</div><div class="sub">engine classes</div></div>`;
+
+// ── warnings (addon warnings hidden by default) ─────────────────────────
+const isAddonWarning = (w) => w.includes("res://addons/");
+function renderWarnings() {
+  const showAddon = $("show-addon-warn").checked;
+  const shown = REPORT.warnings.filter((w) => showAddon || !isAddonWarning(w));
+  const hidden = REPORT.warnings.length - shown.length;
+  $("warning-list").innerHTML = shown.map((w) => `<li class="warn">${esc(w)}</li>`).join("");
+  $("addon-warn-count").textContent = REPORT.warnings.filter(isAddonWarning).length;
+  $("warn-count").textContent = `${shown.length} shown` + (hidden ? `, ${hidden} hidden` : "");
+}
+if (REPORT.warnings.length) {
+  $("sec-warnings").hidden = false;
+  $("show-addon-warn").addEventListener("change", renderWarnings);
+  renderWarnings();
+}
+
+// ── asset registries ────────────────────────────────────────────────────
+const reg = (REPORT.extensions.asset_registry || {}).registries || {};
+if (Object.keys(reg).length) {
+  $("sec-registries").hidden = false;
+  $("reg-count").textContent = (REPORT.extensions.asset_registry.summary || "");
+  let html = "";
+  for (const name of Object.keys(reg).sort()) {
+    const r = reg[name];
+    const used = Object.keys(r.used_members).length;
+    html += `<details><summary><span class="path">${esc(name)}</span>` +
+      `<span class="count">${used}/${r.total_members} members used</span>` +
+      `<span class="size">${esc(r.script)}</span></summary><div class="files">`;
+    if (r.unused_members.length)
+      html += `<div>excluded: ${r.unused_members.map((m) => `<span class="chip dead">${esc(m)}</span>`).join("")}</div>`;
+    if (r.unused_members_with_asset_kept.length)
+      html += `<div>member unused, asset kept elsewhere: ${r.unused_members_with_asset_kept.map((m) => `<span class="chip kept">${esc(m)}</span>`).join("")}</div>`;
+    if (!r.unused_members.length && !r.unused_members_with_asset_kept.length)
+      html += `<div class="muted">all members used</div>`;
+    html += "</div></details>";
+  }
+  $("registry-list").innerHTML = html;
+}
+
+// ── tileset tree-shaking ────────────────────────────────────────────────
+const ts = (REPORT.extensions.tileset_tree_shake || {}).tilesets || {};
+if (Object.keys(ts).length) {
+  $("sec-tilesets").hidden = false;
+  $("ts-count").textContent = (REPORT.extensions.tileset_tree_shake.summary || "");
+  let html = "";
+  for (const path of Object.keys(ts).sort()) {
+    const t = ts[path];
+    if (t.unshaken) {
+      html += `<details><summary><span class="path">${esc(path)}</span>` +
+        `<span class="count">unshaken: ${esc(t.unshaken)}</span>` +
+        `<span class="size">${t.total_sources} sources</span></summary></details>`;
+      continue;
+    }
+    const kept = t.used_sources.length;
+    html += `<details><summary><span class="path">${esc(path)}</span>` +
+      `<span class="count">${kept}/${t.total_sources} sources kept</span>` +
+      `<span class="size">${t.dead_sources.length} removed</span></summary><div class="files">` +
+      `<div class="bar"><div style="width:${(100 * kept / Math.max(1, t.total_sources)).toFixed(1)}%"></div></div>` +
+      `<div>kept: ${t.used_sources.map((s) => `<span class="chip">${s}</span>`).join("")}</div>` +
+      "</div></details>";
+  }
+  $("tileset-list").innerHTML = html;
+}
+
+// ── other extensions (generic) ──────────────────────────────────────────
+{
+  const known = new Set(["asset_registry", "tileset_tree_shake"]);
+  const others = Object.keys(REPORT.extensions).filter((k) => !known.has(k));
+  if (others.length) {
+    $("sec-extensions").hidden = false;
+    $("extension-list").innerHTML = others.map((k) =>
+      `<details><summary><span class="path">${esc(k)}</span>` +
+      `<span class="count">${esc((REPORT.extensions[k] || {}).summary || "")}</span></summary>` +
+      `<pre>${esc(JSON.stringify(REPORT.extensions[k], null, 2))}</pre></details>`).join("");
+  }
+}
+
+// ── unused / used / classes ─────────────────────────────────────────────
+$("unused-count").textContent = `${T.unused_count} files · ${humanSize(T.unused_size)} — skip() candidates`;
+renderDirGroups($("unused-list"), REPORT.unused, (p) =>
+  `<div>${esc(p.substring(p.lastIndexOf("/") + 1))} <span class="size">${humanSize(REPORT.sizes[p] || 0)}</span></div>`);
+
+// Referrers render as short chips: file referrers show their basename
+// (hover for the full path), root markers (<autoload>, <config>,
+// <registry ...>) keep their tag text and stand out in blue.
+function refChip(r) {
+  if (r.startsWith("res://")) {
+    const base = r.substring(r.lastIndexOf("/") + 1);
+    return `<span class="chip ref" title="${esc(r)}">${esc(base)}</span>`;
+  }
+  return `<span class="chip root" title="${esc(r)}">${esc(r)}</span>`;
+}
+
+$("used-count").textContent = `${T.used_count} files · ${humanSize(T.used_size)}`;
+renderDirGroups($("used-list"), REPORT.used, (p) =>
+  `<div>${esc(p.substring(p.lastIndexOf("/") + 1))} <span class="size">${humanSize(REPORT.sizes[p] || 0)}</span>` +
+  ` &larr; ${(REPORT.referrers[p] || []).map(refChip).join("")}</div>`);
+
+$("class-count").textContent = REPORT.engine_classes.length;
+$("class-list").innerHTML = REPORT.engine_classes.map((c) => `<span class="chip">${esc(c)}</span>`).join("");
+</script>
+</body>
+</html>
