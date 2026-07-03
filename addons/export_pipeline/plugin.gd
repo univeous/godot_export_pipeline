@@ -18,7 +18,8 @@ func _exit_tree() -> void:
 	_pruner = null
 
 
-## Runs the reachability analyzer headless and prints its summary.
+## Runs the reachability analyzer headless, prints its summary and opens
+## the HTML report in the default browser.
 func _run_analysis() -> void:
 	var output := []
 	var exit_code := OS.execute(OS.get_executable_path(), [
@@ -31,5 +32,8 @@ func _run_analysis() -> void:
 				print(line.strip_edges())
 	if exit_code != 0:
 		push_error("Export analysis failed (exit %d); see output above." % exit_code)
-	else:
-		EditorInterface.get_resource_filesystem().scan()
+		return
+	EditorInterface.get_resource_filesystem().scan()
+	var report := ProjectSettings.globalize_path("res://tools/export_report.html")
+	if FileAccess.file_exists(report):
+		OS.shell_open(report)
