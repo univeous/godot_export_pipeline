@@ -93,7 +93,9 @@ func _echo(line: String) -> void:
 	var safe := line.replace("[", "[lb]")
 	if "WARNING" in line:
 		print_rich("[color=yellow]%s[/color]" % safe)
-	elif "scons " in line:
+	elif "]   " in line:
+		# Command lines (scons / copy / release invocation) — the generator
+		# marks them with a three-space indent after the tag.
 		print_rich("[color=cyan][code]%s[/code][/color]" % safe)
 	elif line.begins_with("[export_analyzer] used:") or line.begins_with("[build_profile_gen] kept"):
 		print_rich("[b]%s[/b]" % safe)

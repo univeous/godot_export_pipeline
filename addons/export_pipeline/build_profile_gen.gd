@@ -275,6 +275,11 @@ func _init() -> void:
 	print("[build_profile_gen]   %s" % scons_cmd)
 	print("[build_profile_gen] then install it so exports and release.ps1 pick it up:")
 	print("[build_profile_gen]   copy bin\\godot.windows.template_release.%s.exe \"%s\\windows_release_%s.exe\"" % [arch, install_dir.replace("/", "\\"), arch])
+	print("[build_profile_gen] and verify + ship in one command:")
+	print("[build_profile_gen]   pwsh \"%s\" -GodotExe \"%s\"" % [
+		ProjectSettings.globalize_path("res://addons/export_pipeline/release.ps1").replace("/", "\\"),
+		OS.get_executable_path().replace("/", "\\"),
+	])
 	if missing_runner:
 		print("[build_profile_gen] NOTE: neither `uv` nor `scons` was found on PATH — install uv (https://docs.astral.sh/uv/, e.g. `winget install astral-sh.uv`) and the command becomes `uvx scons ...`, or install SCons >= 4.4 yourself.")
 	if needs_d3d12:
