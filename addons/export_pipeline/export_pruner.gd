@@ -94,6 +94,16 @@ func _export_begin(features: PackedStringArray, is_debug: bool, path: String, fl
 		], output, true)
 		if exit_code != 0:
 			push_warning("[export_pruner] analysis refresh failed (exit %d) — falling back to the existing report." % exit_code)
+		elif FileAccess.file_exists(BUILD_PROFILE_PATH):
+			# Newly used engine classes must reach engine.build too. Safe to
+			# do every export: the generator is write-if-changed, so an
+			# unchanged profile keeps its mtime and templates stay fresh.
+			var profile_exit := OS.execute(OS.get_executable_path(), [
+				"--headless", "--path", ProjectSettings.globalize_path("res://"),
+				"-s", "addons/export_pipeline/build_profile_gen.gd",
+			], output, true)
+			if profile_exit != 0:
+				push_warning("[export_pruner] build profile refresh failed (exit %d) — engine.build may be stale." % profile_exit)
 
 	var report := _load_json(REPORT_PATH)
 	if report.is_empty():

@@ -22,6 +22,7 @@ extends SceneTree
 
 const REPORT_PATH := "res://tools/export_report.json"
 const PROFILE_PATH := "res://tools/engine.build"
+const COMMAND_PATH := "res://tools/template_build_command.txt"
 
 ## Never disabled: core machinery whose absence breaks any build.
 const ESSENTIALS := [
@@ -209,15 +210,36 @@ func _init() -> void:
 	for mod in module_names:
 		module_flags.append("module_%s_enabled=yes" % mod)
 
+	# Everything a human needs to build the template goes into a text file
+	# with absolute paths — editor Output panels are easy to miss and hard
+	# to copy from; the plugin's Tools menu opens this file directly.
+	var scons_cmd := ("scons platform=windows target=template_release arch=x86_64 optimize=size_extra lto=full debug_symbols=no"
+		+ " winrt=no accesskit=no d3d12=no minizip=no openxr=no"
+		+ " modules_enabled_by_default=no %s" % " ".join(module_flags)
+		+ " build_profile=%s" % ProjectSettings.globalize_path(PROFILE_PATH))
+	var install_dir := ProjectSettings.globalize_path("res://tools/templates")
+	var cmd_lines := PackedStringArray([
+		"Trimmed export template build — generated %s by build_profile_gen.gd" % Time.get_datetime_string_from_system(),
+		"Engine: %s | kept %d classes, disabled %d | modules: %s" % ["%s.%s.%s" % [Engine.get_version_info()["major"], Engine.get_version_info()["minor"], Engine.get_version_info()["status"]], _keep.size(), disabled.size(), ", ".join(module_names)],
+		"",
+		"1. Run from a Godot source checkout matching the engine version above:",
+		"",
+		scons_cmd,
+		"",
+		"2. Install the result so exports and release.ps1 pick it up:",
+		"",
+		"copy bin\\godot.windows.template_release.x86_64.exe \"%s\\windows_release_x86_64.exe\"" % install_dir.replace("/", "\\"),
+		"",
+		"NOTE: vulkan=no is additionally possible for gl_compatibility-only projects; d3d12=no assumes the vulkan driver remains.",
+	])
+	var cf := FileAccess.open(COMMAND_PATH, FileAccess.WRITE)
+	cf.store_string("\n".join(cmd_lines) + "\n")
+	cf.close()
+
 	print("[build_profile_gen] kept %d classes, disabled %d -> %s" % [_keep.size(), disabled.size(), PROFILE_PATH])
 	print("[build_profile_gen] modules needed: %s" % ", ".join(module_names))
-	print("[build_profile_gen] validate in the editor: Project > Tools > Engine Compilation Configuration Editor (load %s, cross-check with Detect from Project)" % PROFILE_PATH)
-	print("[build_profile_gen] template compile (from a godot source checkout matching your engine version):")
-	print("  scons platform=windows target=template_release arch=x86_64 optimize=size_extra lto=full debug_symbols=no \\")
-	print("        winrt=no accesskit=no d3d12=no minizip=no openxr=no \\")
-	print("        modules_enabled_by_default=no %s \\" % " ".join(module_flags))
-	print("        build_profile=%s" % ProjectSettings.globalize_path(PROFILE_PATH))
-	print("[build_profile_gen] NOTE: vulkan=no is additionally possible for gl_compatibility-only projects; d3d12=no assumes the vulkan driver remains.")
+	print("[build_profile_gen] build command written to %s" % COMMAND_PATH)
+	print("  " + scons_cmd)
 	quit()
 
 

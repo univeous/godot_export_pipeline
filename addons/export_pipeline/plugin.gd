@@ -50,12 +50,15 @@ func _generate_build_profile() -> void:
 		"--headless", "--path", ProjectSettings.globalize_path("res://"),
 		"-s", "addons/export_pipeline/build_profile_gen.gd",
 	], output, true)
-	var show := RegEx.create_from_string("\\[build_profile_gen\\]|scons |module_|build_profile=|=no|=yes")
 	for chunk in output:
 		for line in String(chunk).split("\n"):
-			if show.search(line):
-				print(line)
+			if "[build_profile_gen]" in line:
+				print(line.strip_edges())
 	if exit_code != 0:
 		push_error("Build profile generation failed (exit %d); see output above." % exit_code)
-	else:
-		print("[build_profile_gen] after compiling, copy the template exe into res://tools/templates/ — exports will report whether it is up to date, and release.ps1 will pick it up automatically.")
+		return
+	# The full scons command + install instructions live in a text file —
+	# open it directly so it is always visible and copyable.
+	var cmd_file := ProjectSettings.globalize_path("res://tools/template_build_command.txt")
+	if FileAccess.file_exists(cmd_file):
+		OS.shell_open(cmd_file)

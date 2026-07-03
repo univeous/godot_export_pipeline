@@ -108,15 +108,26 @@ if ($missing.Count) { $missing | Select-Object -First 10 | ForEach-Object { Writ
 
 # ── 3. Smoke-run on the (custom) template ───────────────────────────────────
 if ($TemplateExe -eq "") {
-    # Auto-discover a self-built trimmed template (see build_profile_gen).
+    # Template resolution: fresh self-built (tools/templates/) > official
+    # installed template (with a warning when the self-built one is stale).
     $tplDir = Join-Path $ProjectPath "tools\templates"
     $tpl = if (Test-Path $tplDir) { Get-ChildItem $tplDir -Filter *.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1 }
-    if ($tpl) {
+    $profilePath = Join-Path $ProjectPath "tools\engine.build"
+    $tplStale = $tpl -and (Test-Path $profilePath) -and ($tpl.LastWriteTime -lt (Get-Item $profilePath).LastWriteTime)
+    if ($tpl -and -not $tplStale) {
         $TemplateExe = $tpl.FullName
         Write-Host "   auto-discovered template: tools/templates/$($tpl.Name)"
-        $profilePath = Join-Path $ProjectPath "tools\engine.build"
-        if ((Test-Path $profilePath) -and $tpl.LastWriteTime -lt (Get-Item $profilePath).LastWriteTime) {
-            Fail "template $($tpl.Name) is OLDER than tools/engine.build — recompile it (Project > Tools > Generate Build Profile prints the scons command)"
+    } else {
+        if ($tplStale) {
+            Write-Host "   WARNING: tools/templates/$($tpl.Name) is OLDER than tools/engine.build — recompile it (Project > Tools > Generate Build Profile). Falling back to the official template." -ForegroundColor Yellow
+        }
+        $ver = (Invoke-Godot @("--version") "version").Out | Select-Object -First 1
+        if ($ver -match '^(\d+\.\d+(?:\.\d+)?\.\w+)') {
+            $official = "$env:APPDATA\Godot\export_templates\$($Matches[1])\windows_release_x86_64.exe"
+            if (Test-Path $official) {
+                $TemplateExe = $official
+                Write-Host "   using official template: $official"
+            }
         }
     }
 }
