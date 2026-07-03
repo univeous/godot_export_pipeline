@@ -44,7 +44,7 @@ section > .head { display: flex; align-items: baseline; gap: 12px; }
 label.toggle { color: var(--dim); font-size: 12px; margin-left: auto; cursor: pointer; user-select: none; }
 ul { margin: 10px 0 0; padding-left: 20px; }
 li { margin: 2px 0; overflow-wrap: anywhere; }
-li.warn { color: var(--warn); }
+li.warn, .files div.warn { color: var(--warn); }
 details { margin-top: 8px; }
 details > summary {
   cursor: pointer; padding: 4px 8px; border-radius: 5px; background: var(--panel2);
@@ -176,15 +176,48 @@ $("cards").innerHTML = `
   <div class="card warn"><div class="num">${REPORT.warnings.length}</div><div class="sub">warnings</div></div>
   <div class="card"><div class="num">${REPORT.engine_classes.length}</div><div class="sub">engine classes</div></div>`;
 
-// ── warnings (addon warnings hidden by default) ─────────────────────────
+// ── warnings (addon warnings hidden by default, grouped by source file) ──
 const isAddonWarning = (w) => w.includes("res://addons/");
+
+// Best-effort extraction of the file a warning originates from, so the
+// many warnings a single script produces collapse into one group.
+function warningGroup(w) {
+  const m = w.match(/Dynamic load in (res:\/\/[^\s:]+)/) ||
+            w.match(/referenced by (res:\/\/\S+|<[^>]+>)/) ||
+            w.match(/^Runtime file (res:\/\/\S+) references/) ||
+            w.match(/ from (res:\/\/\S+?)(?= —|,|$)/) ||
+            w.match(/ in (res:\/\/[^\s:]+)/) ||
+            w.match(/(res:\/\/[^\s'":]+)/);
+  return m ? m[1].replace(/[.,'"]+$/, "") : "general";
+}
+
 function renderWarnings() {
   const showAddon = $("show-addon-warn").checked;
   const shown = REPORT.warnings.filter((w) => showAddon || !isAddonWarning(w));
   const hidden = REPORT.warnings.length - shown.length;
-  $("warning-list").innerHTML = shown.map((w) => `<li class="warn">${esc(w)}</li>`).join("");
+
+  const groups = new Map();
+  for (const w of shown) {
+    const key = warningGroup(w);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(w);
+  }
+  const sorted = [...groups.entries()].sort((a, b) =>
+    b[1].length - a[1].length || a[0].localeCompare(b[0]));
+
+  let html = "";
+  for (const [key, list] of sorted) {
+    if (list.length === 1) {
+      html += `<li class="warn">${esc(list[0])}</li>`;
+    } else {
+      html += `<details><summary><span class="path">${esc(key)}</span>` +
+        `<span class="count">${list.length} warnings</span></summary><div class="files">` +
+        list.map((w) => `<div class="warn">${esc(w)}</div>`).join("") + "</div></details>";
+    }
+  }
+  $("warning-list").innerHTML = html;
   $("addon-warn-count").textContent = REPORT.warnings.filter(isAddonWarning).length;
-  $("warn-count").textContent = `${shown.length} shown` + (hidden ? `, ${hidden} hidden` : "");
+  $("warn-count").textContent = `${shown.length} shown in ${sorted.length} group(s)` + (hidden ? `, ${hidden} hidden` : "");
 }
 if (REPORT.warnings.length) {
   $("sec-warnings").hidden = false;
