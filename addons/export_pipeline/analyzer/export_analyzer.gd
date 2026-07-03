@@ -91,10 +91,8 @@ func _init() -> void:
 	_compile_regexes()
 	_load_config()
 	_text_scan_exts = _config.get("text_scan_extensions", ["dialogue"])
-	for ext_path in _config.get("extensions", [
-		"res://addons/export_pipeline/analyzer/ext/asset_registry.gd",
-		"res://addons/export_pipeline/analyzer/ext/colored_folders.gd",
-	]):
+	var defaults = load("res://addons/export_pipeline/pipeline_defaults.gd")
+	for ext_path in _config.get("extensions", defaults.DEFAULT_EXTENSIONS):
 		var script = load(String(ext_path))
 		if script == null:
 			push_error("[export_analyzer] cannot load extension %s" % ext_path)

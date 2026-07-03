@@ -33,11 +33,7 @@ const CONFIG_PATH := "res://tools/export_analyzer.json"
 const PRUNE_LOG_PATH := "res://tools/export_prune_log.json"
 const BUILD_PROFILE_PATH := "res://tools/engine.build"
 
-## Keep in sync with the analyzer's default extension list.
-const DEFAULT_EXTENSIONS := [
-	"res://addons/export_pipeline/analyzer/ext/asset_registry.gd",
-	"res://addons/export_pipeline/analyzer/ext/colored_folders.gd",
-]
+const PipelineDefaults := preload("pipeline_defaults.gd")
 
 ## Never exported regardless of analysis state — the analyzer excludes
 ## res://tools/ from its inventory, and this addon must not ship itself.
@@ -49,6 +45,7 @@ var _editor_only: Array = []  # config editor_only + extension declarations
 var _extra_skip_prefixes: Array = []
 var _skipped: Array[String] = []
 var _removed_autoloads := {}  # setting name -> original value, restored at end
+var _dropped_setting_names: Array = []  # for the prune log
 var _ext: Array = []
 var _ext_ready := false
 
@@ -77,6 +74,7 @@ func _export_begin(features: PackedStringArray, is_debug: bool, path: String, fl
 	_editor_only = []
 	_extra_skip_prefixes = ALWAYS_SKIP_PREFIXES.duplicate()
 	_skipped.clear()
+	_dropped_setting_names = []
 
 	var config := _load_json(CONFIG_PATH)
 	if not bool(config.get("prune_on_export", true)):
@@ -151,7 +149,9 @@ func _export_begin(features: PackedStringArray, is_debug: bool, path: String, fl
 		ProjectSettings.set_setting("editor_plugins/enabled", kept_plugins)
 
 	if not _removed_autoloads.is_empty():
-		print("[export_pruner] dropped from exported settings: %s" % ", ".join(_removed_autoloads.keys()))
+		_dropped_setting_names = _removed_autoloads.keys()
+		_dropped_setting_names.sort()
+		print("[export_pruner] dropped %d setting(s) from the exported project settings (full list in the prune log)." % _dropped_setting_names.size())
 
 	_warn_if_build_profile_stale(report)
 	_report_template_status()
@@ -198,6 +198,7 @@ func _export_end() -> void:
 		f.store_string(JSON.stringify({
 			"exported_at": Time.get_datetime_string_from_system(),
 			"skipped_count": _skipped.size(),
+			"dropped_settings": _dropped_setting_names,
 			"skipped": _skipped,
 		}, "\t") + "\n")
 		f.close()
@@ -211,7 +212,7 @@ func _init_extensions(config: Dictionary, report: Dictionary, features: PackedSt
 		return
 	_ext_ready = true
 	var is_debug := "debug" in features
-	for ext_path in config.get("extensions", DEFAULT_EXTENSIONS):
+	for ext_path in config.get("extensions", PipelineDefaults.DEFAULT_EXTENSIONS):
 		var script = load(String(ext_path))
 		if script == null:
 			push_warning("[export_pruner] cannot load extension %s" % ext_path)

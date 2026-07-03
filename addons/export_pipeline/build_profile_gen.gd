@@ -14,6 +14,11 @@
 ##
 ## Run: godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 ##
+## Expected noise: loading scenes pulls in their scripts, and scripts that
+## reference autoloads fail to compile in this bare (-s) environment — the
+## resulting SCRIPT ERROR spam is harmless; class collection does not
+## depend on script compilation.
+##
 ## The profile is an over-approximation-by-construction on the keep side,
 ## but MUST still be validated by an actual template compile and a full
 ## playthrough — dynamic ClassDB.instantiate("Name") calls with computed
