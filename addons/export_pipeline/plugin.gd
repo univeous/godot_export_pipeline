@@ -3,8 +3,11 @@ extends EditorPlugin
 
 const MENU_ITEM := "Run Export Analysis"
 const MENU_ITEM_PROFILE := "Generate Build Profile (prints scons command)"
+const ANALYZER := "addons/export_pipeline/analyzer/export_analyzer.gd"
+const PROFILE_GEN := "addons/export_pipeline/build_profile_gen.gd"
 
 var _pruner: EditorExportPlugin
+var _job: Thread
 
 
 func _enter_tree() -> void:
@@ -19,46 +22,65 @@ func _exit_tree() -> void:
 	remove_tool_menu_item(MENU_ITEM)
 	remove_tool_menu_item(MENU_ITEM_PROFILE)
 	_pruner = null
+	if _job:
+		_job.wait_to_finish()
+		_job = null
 
 
-## Runs the reachability analyzer headless, prints its summary and opens
-## the HTML report in the default browser.
+## Runs the reachability analyzer, refreshes the build profile when the
+## project uses one (same linkage as the pruner), then opens the HTML report.
 func _run_analysis() -> void:
-	var output := []
-	var exit_code := OS.execute(OS.get_executable_path(), [
-		"--headless", "--path", ProjectSettings.globalize_path("res://"),
-		"-s", "addons/export_pipeline/analyzer/export_analyzer.gd",
-	], output, true)
-	for chunk in output:
-		for line in String(chunk).split("\n"):
-			if "[export_analyzer]" in line:
-				print(line.strip_edges())
-	if exit_code != 0:
-		push_error("Export analysis failed (exit %d); see output above." % exit_code)
-		return
+	_run_headless(ANALYZER, func(exit_code: int) -> void:
+		if exit_code != 0:
+			push_error("Export analysis failed (exit %d); see output above." % exit_code)
+			return
+		if FileAccess.file_exists("res://tools/engine.build"):
+			_run_headless(PROFILE_GEN, func(_profile_exit: int) -> void: _open_report())
+		else:
+			_open_report()
+	)
+
+
+## Regenerates tools/engine.build and prints the full scons command.
+func _generate_build_profile() -> void:
+	_run_headless(PROFILE_GEN, func(exit_code: int) -> void:
+		if exit_code != 0:
+			push_error("Build profile generation failed (exit %d); see output above." % exit_code)
+	)
+
+
+func _open_report() -> void:
 	EditorInterface.get_resource_filesystem().scan()
 	var report := ProjectSettings.globalize_path("res://tools/export_report.html")
 	if FileAccess.file_exists(report):
 		OS.shell_open(report)
 
 
-## Regenerates tools/engine.build from the current analysis and prints the
-## full scons command for the trimmed export template.
-func _generate_build_profile() -> void:
-	var output := []
-	var exit_code := OS.execute(OS.get_executable_path(), [
-		"--headless", "--path", ProjectSettings.globalize_path("res://"),
-		"-s", "addons/export_pipeline/build_profile_gen.gd",
-	], output, true)
+## Runs a pipeline script headless on a worker thread — the editor stays
+## responsive — and echoes tagged output to the Output panel when done.
+func _run_headless(script_path: String, on_done: Callable) -> void:
+	if _job and _job.is_alive():
+		push_warning("[export_pipeline] a pipeline task is already running — try again when it finishes.")
+		return
+	if _job:
+		_job.wait_to_finish()
+	print("[export_pipeline] running %s in the background..." % script_path)
+	var godot := OS.get_executable_path()
+	var project := ProjectSettings.globalize_path("res://")
+	_job = Thread.new()
+	_job.start(func() -> void:
+		var output := []
+		var exit_code := OS.execute(godot, ["--headless", "--path", project, "-s", script_path], output, true)
+		_finish_job.call_deferred(output, exit_code, on_done)
+	)
+
+
+func _finish_job(output: Array, exit_code: int, on_done: Callable) -> void:
+	if _job:
+		_job.wait_to_finish()
+		_job = null
 	for chunk in output:
 		for line in String(chunk).split("\n"):
-			if "[build_profile_gen]" in line:
+			if "[export_analyzer]" in line or "[build_profile_gen]" in line:
 				print(line.strip_edges())
-	if exit_code != 0:
-		push_error("Build profile generation failed (exit %d); see output above." % exit_code)
-		return
-	# The full scons command + install instructions live in a text file —
-	# open it directly so it is always visible and copyable.
-	var cmd_file := ProjectSettings.globalize_path("res://tools/template_build_command.txt")
-	if FileAccess.file_exists(cmd_file):
-		OS.shell_open(cmd_file)
+	on_done.call(exit_code)

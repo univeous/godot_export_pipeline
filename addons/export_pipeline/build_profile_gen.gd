@@ -22,7 +22,6 @@ extends SceneTree
 
 const REPORT_PATH := "res://tools/export_report.json"
 const PROFILE_PATH := "res://tools/engine.build"
-const COMMAND_PATH := "res://tools/template_build_command.txt"
 
 ## Never disabled: core machinery whose absence breaks any build.
 const ESSENTIALS := [
@@ -214,9 +213,6 @@ func _init() -> void:
 	for mod in module_names:
 		module_flags.append("module_%s_enabled=yes" % mod)
 
-	# Everything a human needs to build the template goes into a text file
-	# with absolute paths — editor Output panels are easy to miss and hard
-	# to copy from; the plugin's Tools menu opens this file directly.
 	# Build options are derived from project state, never assumed:
 	#  - d3d12 stays when the project's RD driver is d3d12 (needs the D3D12
 	#    SDK deps: misc/scripts/install_d3d12_sdk_windows.py);
@@ -231,36 +227,26 @@ func _init() -> void:
 		extra_opts.append("d3d12=no")
 	if not (_keep.has("ZIPReader") or _keep.has("ZIPPacker")):
 		extra_opts.append("minizip=no")
-	var scons_cmd := ("scons platform=windows target=template_release arch=x86_64 optimize=size_extra lto=full debug_symbols=no"
+	# Architecture of the running editor — the sensible default for a
+	# desktop template built on this machine, not a hardcoded x86_64.
+	var arch := Engine.get_architecture_name()
+	var scons_cmd := ("scons platform=windows target=template_release arch=%s optimize=size_extra lto=full debug_symbols=no" % arch
 		+ (" " + " ".join(extra_opts) if not extra_opts.is_empty() else "")
 		+ " modules_enabled_by_default=no %s" % " ".join(module_flags)
 		+ " build_profile=%s" % ProjectSettings.globalize_path(PROFILE_PATH))
 	var install_dir := ProjectSettings.globalize_path("res://tools/templates")
-	var cmd_lines := PackedStringArray([
-		"Trimmed export template build — generated %s by build_profile_gen.gd" % Time.get_datetime_string_from_system(),
-		"Engine: %s | kept %d classes, disabled %d | modules: %s" % ["%s.%s.%s" % [Engine.get_version_info()["major"], Engine.get_version_info()["minor"], Engine.get_version_info()["status"]], _keep.size(), disabled.size(), ", ".join(module_names)],
-		"",
-		"1. Run from a Godot source checkout matching the engine version above:",
-		"",
-		scons_cmd,
-		"",
-		"2. Install the result so exports and release.ps1 pick it up:",
-		"",
-		"copy bin\\godot.windows.template_release.x86_64.exe \"%s\\windows_release_x86_64.exe\"" % install_dir.replace("/", "\\"),
-		"",
-		"NOTES:",
-		"- environment workarounds: append `winrt=no accesskit=no` if your build machine lacks the Windows SDK / AccessKit deps (accesskit=no removes screen-reader support — an accessibility trade-off, not a free win).",
-		"- d3d12 %s" % ("is KEPT because this project's rendering driver is d3d12 — the D3D12 SDK deps must be installed (misc/scripts/install_d3d12_sdk_windows.py)." if needs_d3d12 else "is disabled (project does not use the d3d12 driver)."),
-		"- vulkan=no is additionally possible for gl_compatibility-only projects.",
-	])
-	var cf := FileAccess.open(COMMAND_PATH, FileAccess.WRITE)
-	cf.store_string("\n".join(cmd_lines) + "\n")
-	cf.close()
-
+	var vinfo := Engine.get_version_info()
 	print("[build_profile_gen] kept %d classes, disabled %d -> %s" % [_keep.size(), disabled.size(), PROFILE_PATH])
 	print("[build_profile_gen] modules needed: %s" % ", ".join(module_names))
-	print("[build_profile_gen] build command written to %s" % COMMAND_PATH)
-	print("  " + scons_cmd)
+	print("[build_profile_gen] compile from a Godot source checkout matching %s.%s.%s:" % [vinfo["major"], vinfo["minor"], vinfo["status"]])
+	print("[build_profile_gen]   %s" % scons_cmd)
+	print("[build_profile_gen] then install it so exports and release.ps1 pick it up:")
+	print("[build_profile_gen]   copy bin\\godot.windows.template_release.%s.exe \"%s\\windows_release_%s.exe\"" % [arch, install_dir.replace("/", "\\"), arch])
+	if needs_d3d12:
+		print("[build_profile_gen] NOTE: d3d12 is kept (project renders through the d3d12 driver) — its SDK deps must be installed: misc/scripts/install_d3d12_sdk_windows.py")
+	if rendering_method == "gl_compatibility":
+		print("[build_profile_gen] NOTE: vulkan=no is additionally possible for gl_compatibility-only projects.")
+	print("[build_profile_gen] NOTE: append `winrt=no accesskit=no` only if your build machine lacks those SDKs (accesskit=no removes screen-reader support — an accessibility trade-off, not a free win).")
 	quit()
 
 
