@@ -273,8 +273,9 @@ func _init() -> void:
 	print("[build_profile_gen] modules needed: %s" % ", ".join(module_names))
 	print("[build_profile_gen] compile from a Godot source checkout matching %s.%s.%s:" % [vinfo["major"], vinfo["minor"], vinfo["status"]])
 	print("[build_profile_gen]   %s" % scons_cmd)
-	print("[build_profile_gen] then install it so exports and release.ps1 pick it up:")
+	print("[build_profile_gen] then install it so exports and release.ps1 pick it up (the profile sidecar is how freshness is verified — content, not timestamps):")
 	print("[build_profile_gen]   copy bin\\godot.windows.template_release.%s.exe \"%s\\windows_release_%s.exe\"" % [arch, install_dir.replace("/", "\\"), arch])
+	print("[build_profile_gen]   copy \"%s\" \"%s\\profile_used.build\"" % [ProjectSettings.globalize_path(PROFILE_PATH).replace("/", "\\"), install_dir.replace("/", "\\")])
 	print("[build_profile_gen] and verify + ship in one command:")
 	print("[build_profile_gen]   pwsh \"%s\" -GodotExe \"%s\"" % [
 		ProjectSettings.globalize_path("res://addons/export_pipeline/release.ps1").replace("/", "\\"),

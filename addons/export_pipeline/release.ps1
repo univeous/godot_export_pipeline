@@ -20,7 +20,9 @@ param(
     # Shippable output. Defaults to <project>/dist (kept invisible to Godot
     # via an auto-created .gdignore).
     [string]$ArtifactDir = "",
-    [int]$SmokeFrames = 300
+    [int]$SmokeFrames = 300,
+    # Opens the output directory on success; pass -NoOpen for CI/scripted runs.
+    [switch]$NoOpen
 )
 # "Continue", not "Stop": with Stop, redirected native stderr (Godot's normal
 # startup chatter) becomes a terminating error. Failures are checked explicitly.
@@ -112,16 +114,24 @@ if ($missing.Count) { $missing | Select-Object -First 10 | ForEach-Object { Writ
 if ($TemplateExe -eq "") {
     # Template resolution: fresh self-built (tools/templates/) > official
     # installed template (with a warning when the self-built one is stale).
+    # Freshness = the profile_used.build sidecar matching the current
+    # engine.build by CONTENT — timestamps lie (copies preserve mtime,
+    # identical rewrites bump it).
     $tplDir = Join-Path $ProjectPath "tools\templates"
     $tpl = if (Test-Path $tplDir) { Get-ChildItem $tplDir -Filter *.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1 }
     $profilePath = Join-Path $ProjectPath "tools\engine.build"
-    $tplStale = $tpl -and (Test-Path $profilePath) -and ($tpl.LastWriteTime -lt (Get-Item $profilePath).LastWriteTime)
+    $sidecar = Join-Path $tplDir "profile_used.build"
+    $tplStale = $false
+    if ($tpl -and (Test-Path $profilePath)) {
+        $tplStale = -not (Test-Path $sidecar) -or
+            ((Get-FileHash $sidecar).Hash -ne (Get-FileHash $profilePath).Hash)
+    }
     if ($tpl -and -not $tplStale) {
         $TemplateExe = $tpl.FullName
         Write-Host "   auto-discovered template: tools/templates/$($tpl.Name)"
     } else {
         if ($tplStale) {
-            Write-Host "   WARNING: tools/templates/$($tpl.Name) is OLDER than tools/engine.build — recompile it (Project > Tools > Generate Build Profile). Falling back to the official template." -ForegroundColor Yellow
+            Write-Host "   WARNING: tools/templates/$($tpl.Name) was built from an outdated (or unverifiable) profile — recompile/reinstall it with its profile_used.build sidecar (Project > Tools > Generate Build Profile). Falling back to the official template." -ForegroundColor Yellow
         }
         $ver = (Invoke-Godot @("--version") "version").Out | Select-Object -First 1
         if ($ver -match '^(\d+\.\d+(?:\.\d+)?\.\w+)') {
@@ -161,9 +171,16 @@ if ($TemplateExe -eq "") {
     $gameName = [IO.Path]::GetFileNameWithoutExtension($OutputPck)
     Copy-Item $TemplateExe (Join-Path $ArtifactDir "$gameName.exe") -Force
     Copy-Item $OutputPck (Join-Path $ArtifactDir "$gameName.pck") -Force
-    $total = (Get-ChildItem $ArtifactDir | Measure-Object Length -Sum).Sum
-    Write-Host "   $ArtifactDir ($([math]::Round($total/1MB,1)) MB total)"
+    $shipDir = $ArtifactDir
 }
 
-Stage "RELEASE OK — $OutputPck ($([math]::Round((Get-Item $OutputPck).Length/1MB,1)) MB)"
+$pckMB = [math]::Round((Get-Item $OutputPck).Length/1MB,1)
+if ($shipDir) {
+    $total = (Get-ChildItem $shipDir -File | Where-Object Name -ne ".gdignore" | Measure-Object Length -Sum).Sum
+    Stage "RELEASE OK — $shipDir ($([math]::Round($total/1MB,1)) MB; pck $pckMB MB)"
+} else {
+    $shipDir = Split-Path $OutputPck -Parent
+    Stage "RELEASE OK — $OutputPck ($pckMB MB; no template, pck only)"
+}
+if (-not $NoOpen) { Start-Process explorer.exe $shipDir }
 exit 0

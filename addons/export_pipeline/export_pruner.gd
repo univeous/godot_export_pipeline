@@ -311,8 +311,12 @@ func _autoloads_to_drop(config: Dictionary) -> Array[String]:
 
 
 ## Self-built trimmed export templates live in res://tools/templates/ by
-## convention. Export plugins cannot switch the preset's template mid-export
-## (no scripting API for presets), so this reports the situation instead:
+## convention, next to a profile_used.build sidecar (a copy of the
+## engine.build the template was compiled from). Freshness is CONTENT
+## equality between that sidecar and the current engine.build — never
+## timestamps, which copies, touches and identical rewrites all corrupt.
+## Export plugins cannot switch the preset's template mid-export (no
+## scripting API for presets), so this reports the situation instead:
 ## the preset's custom_template must point at the template once, and
 ## release.ps1 auto-discovers it for smoke runs and artifact assembly.
 func _report_template_status() -> void:
@@ -335,8 +339,11 @@ func _report_template_status() -> void:
 	if newest.is_empty():
 		print("[export_pruner] no self-built template in res://tools/templates/ — the stock export template is used (Project > Tools > Generate Build Profile to build a trimmed one).")
 		return
-	if newest_time < FileAccess.get_modified_time(BUILD_PROFILE_PATH):
-		push_warning("[export_pruner] self-built template tools/templates/%s is OLDER than tools/engine.build — recompile it, or the exported game may miss engine classes." % newest)
+	var sidecar := "res://tools/templates/profile_used.build"
+	if not FileAccess.file_exists(sidecar):
+		push_warning("[export_pruner] tools/templates/%s has no profile_used.build sidecar — freshness cannot be verified; reinstall per the Generate Build Profile instructions." % newest)
+	elif FileAccess.get_file_as_string(sidecar) != FileAccess.get_file_as_string(BUILD_PROFILE_PATH):
+		push_warning("[export_pruner] self-built template tools/templates/%s was compiled from an OUTDATED profile — recompile it, or the exported game may miss engine classes." % newest)
 	else:
 		print("[export_pruner] up-to-date self-built template: tools/templates/%s (make sure the preset's custom_template points at it, or ship via release.ps1)." % newest)
 
