@@ -235,7 +235,17 @@ func _init() -> void:
 	# Architecture of the running editor — the sensible default for a
 	# desktop template built on this machine, not a hardcoded x86_64.
 	var arch := Engine.get_architecture_name()
-	var scons_cmd := ("scons platform=windows target=template_release arch=%s optimize=size_extra lto=full debug_symbols=no" % arch
+	# Prefer `uvx scons` (uv fetches an up-to-date SCons into an ephemeral
+	# env — Godot needs >= 4.4, system installs are often older), fall back
+	# to a bare scons on PATH, and print plain scons with an install hint
+	# when neither is available.
+	var scons_runner := "scons"
+	var missing_runner := false
+	if OS.execute("uv", ["--version"], []) == 0:
+		scons_runner = "uvx scons"
+	elif OS.execute("scons", ["--version"], []) != 0:
+		missing_runner = true
+	var scons_cmd := ("%s platform=windows target=template_release arch=%s optimize=size_extra lto=full debug_symbols=no" % [scons_runner, arch]
 		+ (" " + " ".join(extra_opts) if not extra_opts.is_empty() else "")
 		+ " modules_enabled_by_default=no %s" % " ".join(module_flags)
 		+ " build_profile=%s" % ProjectSettings.globalize_path(PROFILE_PATH))
@@ -247,6 +257,8 @@ func _init() -> void:
 	print("[build_profile_gen]   %s" % scons_cmd)
 	print("[build_profile_gen] then install it so exports and release.ps1 pick it up:")
 	print("[build_profile_gen]   copy bin\\godot.windows.template_release.%s.exe \"%s\\windows_release_%s.exe\"" % [arch, install_dir.replace("/", "\\"), arch])
+	if missing_runner:
+		print("[build_profile_gen] NOTE: neither `uv` nor `scons` was found on PATH — install uv (https://docs.astral.sh/uv/, e.g. `winget install astral-sh.uv`) and the command becomes `uvx scons ...`, or install SCons >= 4.4 yourself.")
 	if needs_d3d12:
 		print("[build_profile_gen] NOTE: d3d12 is kept (project renders through the d3d12 driver) — its SDK deps must be installed: misc/scripts/install_d3d12_sdk_windows.py")
 	if rendering_method == "gl_compatibility":
