@@ -194,6 +194,10 @@ func _init() -> void:
 		var engine_3d := String(ProjectSettings.get_setting("physics/3d/physics_engine", "DEFAULT"))
 		modules["jolt_physics" if engine_3d.contains("Jolt") else "godot_physics_3d"] = true
 
+	# XR projects need the openxr module regardless of class detection.
+	if bool(ProjectSettings.get_setting("xr/openxr/enabled", false)):
+		modules["openxr"] = true
+
 	for c in _keep:
 		for mod in CLASS_MODULES.get(c, []):
 			modules[mod] = true
@@ -213,8 +217,22 @@ func _init() -> void:
 	# Everything a human needs to build the template goes into a text file
 	# with absolute paths — editor Output panels are easy to miss and hard
 	# to copy from; the plugin's Tools menu opens this file directly.
+	# Build options are derived from project state, never assumed:
+	#  - d3d12 stays when the project's RD driver is d3d12 (needs the D3D12
+	#    SDK deps: misc/scripts/install_d3d12_sdk_windows.py);
+	#  - minizip stays when ZIPReader/ZIPPacker are in use;
+	#  - openxr/winrt/accesskit are governed by the module whitelist and the
+	#    environment-workarounds note below, not blanket-disabled.
+	var extra_opts := PackedStringArray()
+	var rd_driver := String(ProjectSettings.get_setting("rendering/rendering_device/driver.windows",
+		ProjectSettings.get_setting("rendering/rendering_device/driver", "vulkan")))
+	var needs_d3d12 := rendering_method != "gl_compatibility" and rd_driver == "d3d12"
+	if not needs_d3d12:
+		extra_opts.append("d3d12=no")
+	if not (_keep.has("ZIPReader") or _keep.has("ZIPPacker")):
+		extra_opts.append("minizip=no")
 	var scons_cmd := ("scons platform=windows target=template_release arch=x86_64 optimize=size_extra lto=full debug_symbols=no"
-		+ " winrt=no accesskit=no d3d12=no minizip=no openxr=no"
+		+ (" " + " ".join(extra_opts) if not extra_opts.is_empty() else "")
 		+ " modules_enabled_by_default=no %s" % " ".join(module_flags)
 		+ " build_profile=%s" % ProjectSettings.globalize_path(PROFILE_PATH))
 	var install_dir := ProjectSettings.globalize_path("res://tools/templates")
@@ -230,7 +248,10 @@ func _init() -> void:
 		"",
 		"copy bin\\godot.windows.template_release.x86_64.exe \"%s\\windows_release_x86_64.exe\"" % install_dir.replace("/", "\\"),
 		"",
-		"NOTE: vulkan=no is additionally possible for gl_compatibility-only projects; d3d12=no assumes the vulkan driver remains.",
+		"NOTES:",
+		"- environment workarounds: append `winrt=no accesskit=no` if your build machine lacks the Windows SDK / AccessKit deps (accesskit=no removes screen-reader support — an accessibility trade-off, not a free win).",
+		"- d3d12 %s" % ("is KEPT because this project's rendering driver is d3d12 — the D3D12 SDK deps must be installed (misc/scripts/install_d3d12_sdk_windows.py)." if needs_d3d12 else "is disabled (project does not use the d3d12 driver)."),
+		"- vulkan=no is additionally possible for gl_compatibility-only projects.",
 	])
 	var cf := FileAccess.open(COMMAND_PATH, FileAccess.WRITE)
 	cf.store_string("\n".join(cmd_lines) + "\n")
