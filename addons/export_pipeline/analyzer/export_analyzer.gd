@@ -228,6 +228,16 @@ func _seed_roots() -> void:
 	var ignored: Array = _config.get("ignored_settings", []).duplicate()
 	for autoload_name in ignored_autoloads:
 		ignored.append("autoload/%s" % autoload_name)
+	# Settings owned by excluded addons (res://addons/<name>/ in editor_only,
+	# whether from config or extensions like colored folders) are editor-side
+	# leftovers — their values must not become roots. Convention: an addon's
+	# settings live under "addons/<name>/..." or "<name>/...".
+	var ignored_prefixes: Array[String] = []
+	for eo_prefix in _config.get("editor_only", []):
+		var p := String(eo_prefix).trim_suffix("/")
+		if p.begins_with("res://addons/") and p.count("/") == 3:
+			ignored_prefixes.append("addons/%s/" % p.get_file())
+			ignored_prefixes.append("%s/" % p.get_file())
 	var re_prop := RegEx.create_from_string("^([A-Za-z_][\\w/.]*)=")
 	var section2 := ""
 	var prop := ""
@@ -240,6 +250,13 @@ func _seed_roots() -> void:
 		if pm:
 			prop = section2.path_join(pm.get_string(1)) if not section2.is_empty() else pm.get_string(1)
 		if prop in EDITOR_ONLY_SETTINGS or prop in ignored:
+			continue
+		var owned_by_excluded_addon := false
+		for ip in ignored_prefixes:
+			if prop.begins_with(ip):
+				owned_by_excluded_addon = true
+				break
+		if owned_by_excluded_addon:
 			continue
 		for m in _re_quoted_path.search_all(stripped):
 			_mark_used(m.get_string(1), "<project.godot %s>" % prop)

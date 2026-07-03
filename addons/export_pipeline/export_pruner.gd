@@ -117,8 +117,31 @@ func _export_begin(features: PackedStringArray, is_debug: bool, path: String, fl
 		if ProjectSettings.has_setting(setting):
 			_removed_autoloads[setting] = ProjectSettings.get_setting(setting)
 			ProjectSettings.set_setting(setting, null)
+
+	# Settings owned by excluded addons ([location_manager] data blobs,
+	# addons/<name>/ config, their editor_plugins/enabled entries) are
+	# editor-side leftovers — strip them from the exported settings via the
+	# same in-memory + restore mechanism.
+	for setting in _plugin_settings_to_drop():
+		if ProjectSettings.has_setting(setting):
+			_removed_autoloads[setting] = ProjectSettings.get_setting(setting)
+			ProjectSettings.set_setting(setting, null)
+	var enabled_plugins: PackedStringArray = ProjectSettings.get_setting("editor_plugins/enabled", PackedStringArray())
+	var kept_plugins := PackedStringArray()
+	for cfg_path in enabled_plugins:
+		var excluded := false
+		for prefix in _extra_skip_prefixes:
+			if String(cfg_path).begins_with(String(prefix)):
+				excluded = true
+				break
+		if not excluded:
+			kept_plugins.append(cfg_path)
+	if kept_plugins.size() != enabled_plugins.size():
+		_removed_autoloads["editor_plugins/enabled"] = enabled_plugins
+		ProjectSettings.set_setting("editor_plugins/enabled", kept_plugins)
+
 	if not _removed_autoloads.is_empty():
-		print("[export_pruner] dropped autoloads from exported settings: %s" % ", ".join(_removed_autoloads.keys()))
+		print("[export_pruner] dropped from exported settings: %s" % ", ".join(_removed_autoloads.keys()))
 
 	_warn_if_build_profile_stale(report)
 
@@ -270,6 +293,29 @@ func _autoloads_to_drop(config: Dictionary) -> Array[String]:
 				target = ResourceUID.get_id_path(id)
 		for prefix in _editor_only:
 			if target.begins_with(String(prefix)):
+				drop.append(pname)
+				break
+	return drop
+
+
+## Settings owned by addons excluded via editor-only prefixes. Best-effort
+## by naming convention — an addon res://addons/<name>/ usually keeps its
+## settings under "addons/<name>/..." or "<name>/..." — but addons can
+## register settings anywhere in ProjectSettings; anything the convention
+## misses stays in the export (fail-open) and can be handled manually.
+func _plugin_settings_to_drop() -> Array[String]:
+	var addon_names: Array[String] = []
+	for prefix in _editor_only:
+		var p := String(prefix).trim_suffix("/")
+		if p.begins_with("res://addons/") and p.count("/") == 3:
+			addon_names.append(p.get_file())
+	var drop: Array[String] = []
+	if addon_names.is_empty():
+		return drop
+	for prop in ProjectSettings.get_property_list():
+		var pname: String = prop["name"]
+		for addon_name in addon_names:
+			if pname.begins_with("addons/%s/" % addon_name) or pname.begins_with("%s/" % addon_name):
 				drop.append(pname)
 				break
 	return drop
