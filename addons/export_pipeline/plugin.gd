@@ -53,6 +53,7 @@ func _open_report() -> void:
 	EditorInterface.get_resource_filesystem().scan()
 	var report := ProjectSettings.globalize_path("res://tools/export_report.html")
 	if FileAccess.file_exists(report):
+		print_rich("[color=web_gray][export_pipeline][/color] report: [url=file:///%s]%s[/url]" % [report.replace("\\", "/"), report])
 		OS.shell_open(report)
 
 
@@ -64,7 +65,7 @@ func _run_headless(script_path: String, on_done: Callable) -> void:
 		return
 	if _job:
 		_job.wait_to_finish()
-	print("[export_pipeline] running %s in the background..." % script_path)
+	print_rich("[color=web_gray][export_pipeline] running %s in the background...[/color]" % script_path)
 	var godot := OS.get_executable_path()
 	var project := ProjectSettings.globalize_path("res://")
 	_job = Thread.new()
@@ -82,5 +83,19 @@ func _finish_job(output: Array, exit_code: int, on_done: Callable) -> void:
 	for chunk in output:
 		for line in String(chunk).split("\n"):
 			if "[export_analyzer]" in line or "[build_profile_gen]" in line:
-				print(line.strip_edges())
+				_echo(line.strip_edges())
 	on_done.call(exit_code)
+
+
+## Prints one pipeline line with Output-panel styling. Literal brackets in
+## the content must be escaped or BBCode would eat them as tags.
+func _echo(line: String) -> void:
+	var safe := line.replace("[", "[lb]")
+	if "WARNING" in line:
+		print_rich("[color=yellow]%s[/color]" % safe)
+	elif "scons " in line:
+		print_rich("[color=cyan][code]%s[/code][/color]" % safe)
+	elif line.begins_with("[export_analyzer] used:") or line.begins_with("[build_profile_gen] kept"):
+		print_rich("[b]%s[/b]" % safe)
+	else:
+		print_rich(safe)
