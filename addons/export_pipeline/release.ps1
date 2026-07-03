@@ -17,7 +17,9 @@ param(
     # Export template exe for smoke-run + artifact assembly. When omitted,
     # the newest exe in <project>/tools/templates/ is auto-discovered.
     [string]$TemplateExe = "",
-    [string]$ArtifactDir = "$env:TEMP\release_verify\artifact",
+    # Shippable output. Defaults to <project>/dist (kept invisible to Godot
+    # via an auto-created .gdignore).
+    [string]$ArtifactDir = "",
     [int]$SmokeFrames = 300
 )
 # "Continue", not "Stop": with Stop, redirected native stderr (Godot's normal
@@ -150,7 +152,12 @@ if ($TemplateExe -eq "") {
 
     # ── 4. Assemble the shippable artifact (template exe + pck) ────────────
     Stage "Assembling artifact"
+    if ($ArtifactDir -eq "") { $ArtifactDir = Join-Path $ProjectPath "dist" }
     New-Item -ItemType Directory -Force $ArtifactDir | Out-Null
+    # If the artifacts land inside the project, keep Godot (editor, importer
+    # and the analyzer) from ever looking at them.
+    $marker = Join-Path $ArtifactDir ".gdignore"
+    if (-not (Test-Path $marker)) { New-Item -ItemType File $marker | Out-Null }
     $gameName = [IO.Path]::GetFileNameWithoutExtension($OutputPck)
     Copy-Item $TemplateExe (Join-Path $ArtifactDir "$gameName.exe") -Force
     Copy-Item $OutputPck (Join-Path $ArtifactDir "$gameName.pck") -Force

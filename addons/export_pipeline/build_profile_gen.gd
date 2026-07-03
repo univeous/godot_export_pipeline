@@ -245,6 +245,24 @@ func _init() -> void:
 		scons_runner = "uvx scons"
 	elif OS.execute("scons", ["--version"], []) != 0:
 		missing_runner = true
+
+	# WinRT support needs Windows SDK >= 10.0.22621 — a detectable fact of
+	# this machine, so probe for it instead of assuming either way.
+	var winrt_ok := false
+	var sdk_dir := DirAccess.open("C:/Program Files (x86)/Windows Kits/10/Include")
+	if sdk_dir:
+		for v in sdk_dir.get_directories():
+			var parts := v.split(".")
+			if parts.size() >= 3 and int(parts[2]) >= 22621:
+				winrt_ok = true
+				break
+	if not winrt_ok:
+		extra_opts.append("winrt=no")
+	# Environment workarounds this machine needs (e.g. accesskit=no when the
+	# AccessKit deps are not installed in the source checkout) — declared
+	# explicitly in the config, never assumed.
+	for arg in config.get("build_extra_scons_args", []):
+		extra_opts.append(String(arg))
 	var scons_cmd := ("%s platform=windows target=template_release arch=%s optimize=size_extra lto=full debug_symbols=no" % [scons_runner, arch]
 		+ (" " + " ".join(extra_opts) if not extra_opts.is_empty() else "")
 		+ " modules_enabled_by_default=no %s" % " ".join(module_flags)
@@ -263,7 +281,9 @@ func _init() -> void:
 		print("[build_profile_gen] NOTE: d3d12 is kept (project renders through the d3d12 driver) — its SDK deps must be installed: misc/scripts/install_d3d12_sdk_windows.py")
 	if rendering_method == "gl_compatibility":
 		print("[build_profile_gen] NOTE: vulkan=no is additionally possible for gl_compatibility-only projects.")
-	print("[build_profile_gen] NOTE: append `winrt=no accesskit=no` only if your build machine lacks those SDKs (accesskit=no removes screen-reader support — an accessibility trade-off, not a free win).")
+	if not winrt_ok:
+		print("[build_profile_gen] NOTE: winrt=no added — this machine's Windows SDK is older than 10.0.22621.")
+	print("[build_profile_gen] NOTE: if scons then asks for the AccessKit deps, either run misc/scripts/install_accesskit.py in the source checkout, or declare `\"build_extra_scons_args\": [\"accesskit=no\"]` in tools/export_analyzer.json (accesskit=no removes screen-reader support — an accessibility trade-off).")
 	quit()
 
 
