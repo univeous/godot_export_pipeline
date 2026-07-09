@@ -26,7 +26,18 @@ extends EditorExportPlugin
 ##   func customization_hash() -> int              # cache key contribution
 ##   func customize_resource(resource: Resource, path: String) -> Resource
 ##       return a modified copy, or null to leave unchanged (chained)
+##   func wants_scene_customization() -> bool      # gate scene rewriting
+##   func customize_scene(scene: Node, path: String) -> Node
+##       mutate/replace the instantiated scene, or null to leave unchanged
 ##   func export_end(pruner) -> void
+##
+## Built-in scene customization: when tools/engine.build says navigation is
+## compiled out (disable_navigation_2d — decided by build_profile_gen from
+## positive evidence of use), TileMapLayer/TileMap navigation is disabled in
+## every exported scene. The flag defaults to on (TileMapLayer ships with
+## navigation_enabled=true), and against a template without the navigation
+## module it spams "navigation_map.is_null()" errors once per cell. Config
+## "strip_unused_navigation": false turns the stripping off.
 
 const REPORT_PATH := "res://tools/export_report.json"
 const CONFIG_PATH := "res://tools/export_analyzer.json"
@@ -48,6 +59,7 @@ var _removed_autoloads := {}  # setting name -> original value, restored at end
 var _dropped_setting_names: Array = []  # for the prune log
 var _ext: Array = []
 var _ext_ready := false
+var _nav_strip := false  # set in _begin_customize_scenes
 
 
 func _get_name() -> String:
@@ -248,7 +260,7 @@ func _begin_customize_resources(platform: EditorExportPlatform, features: Packed
 
 func _get_customization_configuration_hash() -> int:
 	_ensure_extensions(PackedStringArray())
-	var h := 0
+	var h := hash(["nav_strip", _nav_strip_enabled()])
 	for e in _ext:
 		if e.has_method("customization_hash"):
 			h = hash([h, e.customization_hash()])
@@ -265,6 +277,61 @@ func _customize_resource(resource: Resource, path: String) -> Resource:
 				current = result
 				changed = true
 	return current if changed else null
+
+
+## Navigation is stripped from exported scenes exactly when the build
+## profile compiles it out — one decision, made by build_profile_gen from
+## positive evidence, read back from the written profile so the two sides
+## can't drift. No profile (stock-template workflow without analysis) means
+## no stripping: fail-open.
+func _nav_strip_enabled() -> bool:
+	if not bool(_load_json(CONFIG_PATH).get("strip_unused_navigation", true)):
+		return false
+	return bool(_load_json(BUILD_PROFILE_PATH).get("disabled_build_options", {}).get("disable_navigation_2d", false))
+
+
+func _begin_customize_scenes(platform: EditorExportPlatform, features: PackedStringArray) -> bool:
+	_nav_strip = false
+	if "no_prune" in features:
+		return false
+	_ensure_extensions(features)
+	_nav_strip = _nav_strip_enabled()
+	if _nav_strip:
+		print("[export_pruner] navigation unused per %s — disabling TileMapLayer/TileMap navigation in exported scenes (config \"strip_unused_navigation\": false to keep it)." % BUILD_PROFILE_PATH)
+		return true
+	for e in _ext:
+		if e.has_method("customize_scene") and (not e.has_method("wants_scene_customization") or e.wants_scene_customization()):
+			return true
+	return false
+
+
+func _customize_scene(scene: Node, path: String) -> Node:
+	var current := scene
+	var changed := false
+	if _nav_strip:
+		changed = _disable_tilemap_navigation(current)
+	for e in _ext:
+		if e.has_method("customize_scene"):
+			var result = e.customize_scene(current, path)
+			if result is Node:
+				current = result
+				changed = true
+	return current if changed else null
+
+
+func _disable_tilemap_navigation(node: Node) -> bool:
+	var changed := false
+	if node is TileMapLayer and node.navigation_enabled:
+		node.navigation_enabled = false
+		changed = true
+	elif node is TileMap:
+		for i in node.get_layers_count():
+			if node.is_layer_navigation_enabled(i):
+				node.set_layer_navigation_enabled(i, false)
+				changed = true
+	for child in node.get_children():
+		changed = _disable_tilemap_navigation(child) or changed
+	return changed
 
 # ────────────────────────────────────────────────────────────────────────────
 

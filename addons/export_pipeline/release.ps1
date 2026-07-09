@@ -157,8 +157,10 @@ if ($TemplateExe -eq "") {
     $benign = "resources still in use at exit|ObjectDB instances were leaked|RID allocations of type|Pages in use exist at exit"
     $errors = @(Get-Content "$smokeDir\err.log" | Select-String "ERROR|SCRIPT ERROR" |
         Where-Object { $_.Line -notmatch $benign })
-    Write-Host "   smoke exit: $($p.ExitCode) | real errors: $($errors.Count)"
-    if ($errors.Count) { $errors | Select-Object -First 10 | ForEach-Object { Write-Host "   $_" -ForegroundColor Red }; Fail "smoke run produced errors" }
+    $errorReport = Join-Path $ProjectPath "tools\smoke_errors.log"
+    $errors | Set-Content $errorReport
+    Write-Host "   smoke exit: $($p.ExitCode) | real errors: $($errors.Count) (full list saved to $errorReport)"
+    if ($errors.Count) { $errors | Select-Object -First 10 | ForEach-Object { Write-Host "   $_" -ForegroundColor Red }; Fail "smoke run produced errors — see $errorReport" }
 
     # ── 4. Assemble the shippable artifact (template exe + pck) ────────────
     Stage "Assembling artifact"

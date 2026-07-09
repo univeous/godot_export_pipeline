@@ -92,6 +92,11 @@ HTML 报告里涉及 `res://addons/` 的警告默认隐藏（多为第三方噪�
 - 从导出设置中摘除 `ignored_autoloads` 与 editor_only 命中的 autoload
   （仅内存态，绝不改写磁盘上的 project.godot）；
 - 通过资源定制从导出的 TileSet 里删掉死 source，保证不引用已剪贴图；
+- 当 build profile 判定导航未使用（`tools/engine.build` 里
+  `disable_navigation_2d`）时，在导出场景中关闭 TileMapLayer/TileMap 的
+  navigation：该开关默认开启，而在没有 navigation 模块的模板上，每个
+  开着 nav 的 cell 都会刷一条 `navigation_map.is_null()` 错误。配置
+  `"strip_unused_navigation": false` 可保留原开关；
 - 写出 `tools/export_prune_log.json`（被跳过文件的审计清单）。
 
 给导出预设加 `no_prune` 自定义 feature 可单独跳过裁剪。预设保持
@@ -110,6 +115,9 @@ func process_script(analyzer, path, raw, code) -> bool
 func finalize(analyzer) -> bool     # fixpoint 迭代；标记了新文件返回 true
 func report(analyzer) -> Dictionary # 并入报告 JSON
 func report_markdown(analyzer) -> PackedStringArray
+# 裁剪侧钩子（完整清单见 export_pruner.gd 头部注释）：
+func customize_resource(resource, path) -> Resource  # null = 不修改
+func customize_scene(scene: Node, path) -> Node      # null = 不修改
 ```
 
 分析器 API：`mark_used(path, referrer)`、`is_used(path)`、`used_files()`、
@@ -134,6 +142,22 @@ Configuration 对话框中使用，或直接喂给 scons），并打印完整 sc
 `InputEvent`/`StyleBox` 必留子树 + 设置内嵌对象 + **API 闭包**（保留类
 的方法返回类型与属性类型——GDScript 类型推断可能依赖源码中从未出现的
 类名）。只有 Node/Resource 后代会被禁用。
+
+编译选项与子系统模块只依据**正向证据**判定，绝不依据闭包（闭包会经由
+`Viewport.get_camera_3d()` 给每个项目都保留 `Camera3D`），也绝不依据
+默认开启的开关（`TileMapLayer.navigation_enabled` 默认为开，说明不了
+任何事）：
+
+- `disable_3d`——场景/脚本/资源数据中不存在任何 Node3D/VisualInstance3D
+  后代；
+- 导航（`navigation_2d/3d` 模块 vs `disable_navigation_2d/3d`）——真实引用
+  了导航节点/资源类、脚本中调用 `NavigationServer2D/3D` 或触碰 world
+  navigation map、TileSet 定义了 navigation layer、GridMap 开了
+  `bake_navigation`。判定未使用则整体编译掉，且导出场景同步剥离（见上
+  节裁剪插件）；可用 `"build_extra_modules": ["navigation_2d"]` 强制保留；
+- 2D 物理——CollisionObject2D/Joint2D 证据，或任一已用 TileSet 带 physics
+  layer（TileMapLayer 直接对物理服务器建 body，场景里可以没有任何物理
+  节点）。
 
 **务必实测**：编出模板后，把剪枝 pck 与改名后的模板 exe 同名放一起运行
 并盯 stderr——上面"分析→编译→冒烟"闭环里的每一条规则都来自一次真实

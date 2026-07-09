@@ -12,6 +12,13 @@
 ## profile (tools/engine.build) usable both in the Engine Compilation
 ## Configuration editor and directly via scons build_profile=.
 ##
+## Subsystems whose use is invisible to class detection are decided from
+## positive evidence instead of default-enabled flags: navigation (see
+## NAV_CLASSES — unused nav also sets disable_navigation_2d/3d in the
+## profile, and export_pruner mirrors that by disabling TileMapLayer
+## navigation in exported scenes) and 2D physics implied by TileSet physics
+## layers.
+##
 ## Run: godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 ##
 ## Expected noise: loading scenes pulls in their scripts, and scripts that
@@ -67,11 +74,32 @@ const CLASS_MODULES := {
 	"MultiplayerSpawner": ["multiplayer"], "MultiplayerSynchronizer": ["multiplayer"],
 	"GLTFDocument": ["gltf"],
 	"NavigationAgent2D": ["navigation_2d"], "NavigationRegion2D": ["navigation_2d"],
+	"NavigationLink2D": ["navigation_2d"], "NavigationObstacle2D": ["navigation_2d"],
 	"NavigationAgent3D": ["navigation_3d"], "NavigationRegion3D": ["navigation_3d"],
+	"NavigationLink3D": ["navigation_3d"], "NavigationObstacle3D": ["navigation_3d"],
 	"VisualShader": ["visual_shader"],
 	"CSGShape3D": ["csg"],
 	"OpenXRInterface": ["openxr"],
 	"UPNP": ["upnp"],
+}
+
+## Genuine navigation references by dimension ("2d"/"3d"). Deliberately NOT
+## driven by _keep: NavigationServer2D/3D sit in ESSENTIALS, and the API
+## closure drags in classes like NavigationPolygon through mere method
+## signatures (TileData.get_navigation_polygon), so _keep cannot distinguish
+## real use. Evidence comes from textual references (report engine_classes),
+## actual resource instances in used data, TileSet navigation layers, and
+## script calls into the navigation servers. A default-enabled flag
+## (TileMapLayer.navigation_enabled) is NOT evidence — see _nav_note callers.
+const NAV_CLASSES := {
+	"NavigationAgent2D": "2d", "NavigationRegion2D": "2d", "NavigationLink2D": "2d",
+	"NavigationObstacle2D": "2d", "NavigationPolygon": "2d",
+	"NavigationPathQueryParameters2D": "2d", "NavigationPathQueryResult2D": "2d",
+	"NavigationMeshSourceGeometryData2D": "2d",
+	"NavigationAgent3D": "3d", "NavigationRegion3D": "3d", "NavigationLink3D": "3d",
+	"NavigationObstacle3D": "3d", "NavigationMesh": "3d",
+	"NavigationPathQueryParameters3D": "3d", "NavigationPathQueryResult3D": "3d",
+	"NavigationMeshSourceGeometryData3D": "3d",
 }
 
 ## Used file extension -> modules needed to load it at runtime.
@@ -90,6 +118,28 @@ const EXT_MODULES := {
 }
 
 var _keep := {}
+# Classes with positive evidence of use: scene node types, script
+# identifiers, resource instances, embedded settings objects. Unlike _keep
+# it contains no ESSENTIALS and no API closure — Viewport.get_camera_3d()
+# alone drags Camera3D/Node3D into _keep for every project, so build
+# options (disable_3d) must be decided from this set, not from _keep.
+var _evidence := {}
+var _nav_evidence := {"2d": PackedStringArray(), "3d": PackedStringArray()}
+# TileMapLayer bodies talk straight to PhysicsServer2D — a project can have
+# working tile collision with zero CollisionObject2D nodes of its own, so
+# TileSet physics layers must count as 2D-physics use.
+var _tileset_has_physics := false
+
+
+func _nav_note(dim: String, evidence: String) -> void:
+	if not evidence in _nav_evidence[dim]:
+		_nav_evidence[dim].append(evidence)
+
+
+func _evidence_class(c: String) -> void:
+	if ClassDB.class_exists(c):
+		_evidence[c] = true
+	_keep_class(c)
 
 
 func _init() -> void:
@@ -101,7 +151,9 @@ func _init() -> void:
 	var report: Dictionary = report_raw
 
 	for c in report.get("engine_classes", []):
-		_keep_class(String(c))
+		_evidence_class(String(c))
+		if NAV_CLASSES.has(String(c)):
+			_nav_note(NAV_CLASSES[String(c)], "%s referenced in scenes/scripts" % c)
 	for c in ESSENTIALS:
 		_keep_class(c)
 	# Whole subtrees the engine instantiates at runtime without any trace in
@@ -115,12 +167,40 @@ func _init() -> void:
 	# Objects embedded in project settings: Object(SomeClass, ...)
 	var re_obj := RegEx.create_from_string("Object\\((\\w+),")
 	for m in re_obj.search_all(FileAccess.get_file_as_string("res://project.godot")):
-		_keep_class(m.get_string(1))
+		_evidence_class(m.get_string(1))
 
 	var used: Array = report.get("used", [])
 	_collect_from_resources(used)
 	_collect_from_scripts(used)
 	_close_over_api()
+
+	var config := {}
+	if FileAccess.file_exists("res://tools/export_analyzer.json"):
+		var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://tools/export_analyzer.json"))
+		if parsed is Dictionary:
+			config = parsed
+
+	# Navigation is decided from positive evidence only: TileMapLayer ships
+	# with navigation_enabled=true by default, so "a nav-capable node exists"
+	# proves nothing. When no evidence exists the nav module is dropped AND
+	# the scene-side glue is compiled out (disable_navigation_2d/3d) — a
+	# nav-enabled TileMapLayer running against the module-less dummy server
+	# otherwise spams "navigation_map.is_null()" once per cell. export_pruner
+	# reads the flag from the written profile and additionally disables
+	# TileMapLayer/TileMap navigation in the exported scenes, which also
+	# silences templates built before this profile existed.
+	for mod in config.get("build_extra_modules", []):
+		if String(mod) == "navigation_2d":
+			_nav_note("2d", "forced by config build_extra_modules")
+		elif String(mod) == "navigation_3d":
+			_nav_note("3d", "forced by config build_extra_modules")
+	var nav_used := {}
+	for dim in ["2d", "3d"]:
+		nav_used[dim] = not _nav_evidence[dim].is_empty()
+		if nav_used[dim]:
+			print("[build_profile_gen] navigation_%s in use: %s" % [dim, "; ".join(_nav_evidence[dim])])
+		else:
+			print("[build_profile_gen] navigation_%s unused — module dropped, disable_navigation_%s=yes; export_pruner disables TileMapLayer navigation in exported scenes." % [dim, dim])
 
 	# Ancestor closure runs inside _keep_class; now invert. Only Node and
 	# Resource descendants are disableable: core singletons and servers have
@@ -136,14 +216,18 @@ func _init() -> void:
 	disabled.sort()
 
 	var uses_3d := false
-	for c in _keep:
+	for c in _evidence:
 		if ClassDB.is_parent_class(c, "Node3D") or ClassDB.is_parent_class(c, "VisualInstance3D"):
 			uses_3d = true
 			break
 
 	var profile := {
 		"type": "build_profile",
-		"disabled_build_options": {"disable_3d": not uses_3d},
+		"disabled_build_options": {
+			"disable_3d": not uses_3d,
+			"disable_navigation_2d": not nav_used["2d"],
+			"disable_navigation_3d": not nav_used["3d"],
+		},
 		"disabled_classes": disabled,
 	}
 	# Write-if-changed: the profile's mtime is the freshness reference for
@@ -157,15 +241,12 @@ func _init() -> void:
 	else:
 		print("[build_profile_gen] profile unchanged - %s left untouched." % PROFILE_PATH)
 
-	var config := {}
-	if FileAccess.file_exists("res://tools/export_analyzer.json"):
-		var parsed = JSON.parse_string(FileAccess.get_file_as_string("res://tools/export_analyzer.json"))
-		if parsed is Dictionary:
-			config = parsed
-
 	var modules := {}
 	for mod in ALWAYS_MODULES:
 		modules[mod] = true
+	for dim in nav_used:
+		if nav_used[dim]:
+			modules["navigation_%s" % dim] = true
 
 	# text_server_adv by default; the much smaller text_server_fb only on
 	# explicit request (config build_text_server = "fb"). RichTextLabel
@@ -187,9 +268,9 @@ func _init() -> void:
 
 	# Physics implementations are modules too: without these, kept physics
 	# nodes get no server implementation at runtime.
-	var has_2d_physics := false
+	var has_2d_physics := _tileset_has_physics
 	var has_3d_physics := false
-	for c in _keep:
+	for c in _evidence:
 		has_2d_physics = has_2d_physics or ClassDB.is_parent_class(c, "CollisionObject2D") or ClassDB.is_parent_class(c, "Joint2D")
 		has_3d_physics = has_3d_physics or ClassDB.is_parent_class(c, "CollisionObject3D") or ClassDB.is_parent_class(c, "Joint3D")
 	if has_2d_physics:
@@ -349,8 +430,13 @@ func _collect_from_resources(used: Array) -> void:
 		if res is PackedScene:
 			var state: SceneState = res.get_state()
 			for i in state.get_node_count():
-				_keep_class(state.get_node_type(i))
+				_evidence_class(state.get_node_type(i))
 				for j in state.get_node_property_count(i):
+					# GridMap's nav path is off by default, so an explicit
+					# bake_navigation=true (the only reason it's serialized)
+					# is genuine 3D-navigation use.
+					if state.get_node_property_name(i, j) == &"bake_navigation" and bool(state.get_node_property_value(i, j)):
+						_nav_note("3d", "bake_navigation enabled in %s" % path)
 					_walk_value(state.get_node_property_value(i, j), visited)
 		else:
 			_walk_value(res, visited)
@@ -361,7 +447,15 @@ func _walk_value(value, visited: Dictionary) -> void:
 		if visited.has(value):
 			return
 		visited[value] = true
-		_keep_class(value.get_class())
+		_evidence_class(value.get_class())
+		if NAV_CLASSES.has(value.get_class()):
+			_nav_note(NAV_CLASSES[value.get_class()], "a %s resource lives in used data" % value.get_class())
+		if value is TileSet:
+			var label: String = value.resource_path if not value.resource_path.is_empty() else "an embedded TileSet"
+			if value.get_navigation_layers_count() > 0:
+				_nav_note("2d", "%s defines navigation layers" % label)
+			if value.get_physics_layers_count() > 0:
+				_tileset_has_physics = true
 		for prop in value.get_property_list():
 			if prop["type"] == TYPE_OBJECT or prop["type"] == TYPE_ARRAY or prop["type"] == TYPE_DICTIONARY:
 				_walk_value(value.get(prop["name"]), visited)
@@ -389,4 +483,14 @@ func _collect_from_scripts(used: Array) -> void:
 			if not seen.has(ident):
 				seen[ident] = true
 				if ClassDB.class_exists(ident):
-					_keep_class(ident)
+					_evidence_class(ident)
+		# The nav servers are in ESSENTIALS, so _keep can't tell whether a
+		# script actually talks to them — check the source text directly.
+		if code.contains("NavigationServer2D"):
+			_nav_note("2d", "%s calls NavigationServer2D" % path)
+		if code.contains("NavigationServer3D"):
+			_nav_note("3d", "%s calls NavigationServer3D" % path)
+		if code.contains("get_navigation_map") or code.contains("navigation_map_override"):
+			# World2D and World3D share these names — count both dimensions.
+			_nav_note("2d", "%s touches the world navigation map" % path)
+			_nav_note("3d", "%s touches the world navigation map" % path)

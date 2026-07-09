@@ -99,6 +99,12 @@ is false), then:
   project settings (in-memory only; your project.godot is never written);
 - strips dead tileset sources from exported TileSets (resource
   customization), so they never reference pruned textures;
+- disables TileMapLayer/TileMap navigation in exported scenes when the
+  build profile compiled navigation out (`disable_navigation_2d` in
+  `tools/engine.build`): the flag defaults to on, and against a template
+  without the navigation module every nav-enabled cell spams
+  `navigation_map.is_null()` errors. Set `"strip_unused_navigation": false`
+  in the config to keep the flags;
 - writes `tools/export_prune_log.json` (audit list of skipped files).
 
 Add a `no_prune` custom feature to an export preset to bypass pruning for
@@ -118,6 +124,9 @@ func process_script(analyzer, path, raw, code) -> bool
 func finalize(analyzer) -> bool     # fixpoint pass; true = marked new files
 func report(analyzer) -> Dictionary # merged into report JSON
 func report_markdown(analyzer) -> PackedStringArray
+# pruner-side (see export_pruner.gd header for the full list):
+func customize_resource(resource, path) -> Resource  # or null = unchanged
+func customize_scene(scene: Node, path) -> Node      # or null = unchanged
 ```
 
 Analyzer API: `mark_used(path, referrer)`, `is_used(path)`, `used_files()`,
@@ -145,6 +154,23 @@ identifiers in used scripts (comments stripped) + `InputEvent`/`StyleBox`
 subtrees + settings-embedded objects + **API closure** over method-return
 and property types (GDScript type inference can depend on classes never
 named in source). Only Node/Resource descendants are disabled.
+
+Build options and subsystem modules are decided from **positive evidence**,
+never from the closure (which keeps `Camera3D` in every project via
+`Viewport.get_camera_3d()`) and never from default-enabled flags
+(`TileMapLayer.navigation_enabled` is on by default and proves nothing):
+
+- `disable_3d` — no Node3D/VisualInstance3D descendant in scenes, scripts
+  or resource data;
+- navigation (`navigation_2d/3d` module vs `disable_navigation_2d/3d`) —
+  nav node/resource classes actually referenced, `NavigationServer2D/3D`
+  or the world navigation map touched in scripts, TileSets defining
+  navigation layers, `bake_navigation` on GridMaps. Unused nav is compiled
+  out AND stripped from exported scenes (see export_pruner above); force it
+  with `"build_extra_modules": ["navigation_2d"]`;
+- 2D physics — CollisionObject2D/Joint2D evidence, or any used TileSet with
+  physics layers (TileMapLayer talks to the physics server directly, with
+  no physics node in any scene).
 
 **Always validate**: build the template, then run your pruned pck on it
 (put `game.pck` next to the renamed template exe) and watch stderr — every
