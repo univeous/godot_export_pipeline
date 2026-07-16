@@ -155,9 +155,26 @@ Configuration 对话框中使用，或直接喂给 scons），并打印完整 sc
   navigation map、TileSet 定义了 navigation layer、GridMap 开了
   `bake_navigation`。判定未使用则整体编译掉，且导出场景同步剥离（见上
   节裁剪插件）；可用 `"build_extra_modules": ["navigation_2d"]` 强制保留；
-- 2D 物理——CollisionObject2D/Joint2D 证据，或任一已用 TileSet 带 physics
+- 物理（`godot_physics_2d/3d`/`jolt_physics` 模块 vs
+  `disable_physics_2d/3d`）——碰撞/关节/raycast/shapecast 节点证据、
+  `Physics*QueryParameters*`/`PhysicsDirectSpaceState*`/`PhysicsServer2D/3D`
+  引用（查询类是 RefCounted——纯射线查询的项目可以没有任何碰撞节点）、
+  脚本文本中的 `direct_space_state`、或任一已用 TileSet 带 physics
   layer（TileMapLayer 直接对物理服务器建 body，场景里可以没有任何物理
-  节点）。
+  节点）；可用 `"build_extra_modules": ["godot_physics_2d"]`（或
+  `_3d`/`jolt_physics`）强制保留；
+- `disable_advanced_gui`——证据集中不存在任何被 `ADVANCED_GUI_DISABLED`
+  门控的类（Tree、PopupMenu、TextEdit、RichTextLabel、GraphEdit、
+  SpinBox、SubViewportContainer、各类对话框与分割容器等）。
+
+另有两项推导：已用文件的 `.import` 里出现 Basis Universal
+（`compress/mode=4`）则加入 `basis_universal` 转码模块；纯
+`gl_compatibility` 项目的 scons 命令自动带上 `vulkan=no`（RenderingDevice
+后端不可达）。
+
+类→选项规则与裁剪插件共享（`pipeline_defaults.gd`）：每次导出的过期
+检查会同时标出被 profile 按名字禁用、以及被 `disable_*` 编译选项整族
+编掉的已用类。
 
 **务必实测**：编出模板后，把剪枝 pck 与改名后的模板 exe 同名放一起运行
 并盯 stderr——上面"分析→编译→冒烟"闭环里的每一条规则都来自一次真实

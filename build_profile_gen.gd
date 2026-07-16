@@ -12,12 +12,14 @@
 ## profile (tools/engine.build) usable both in the Engine Compilation
 ## Configuration editor and directly via scons build_profile=.
 ##
-## Subsystems whose use is invisible to class detection are decided from
-## positive evidence instead of default-enabled flags: navigation (see
-## NAV_CLASSES — unused nav also sets disable_navigation_2d/3d in the
-## profile, and export_pruner mirrors that by disabling TileMapLayer
-## navigation in exported scenes) and 2D physics implied by TileSet physics
-## layers.
+## Subsystems are decided from positive evidence instead of default-enabled
+## flags, each yielding both a module decision and a disable_* build option:
+## navigation 2D/3D (unused nav also makes export_pruner disable TileMapLayer
+## navigation in exported scenes), physics 2D/3D (collision/raycast nodes,
+## query/space-state classes, TileSet physics layers, direct_space_state in
+## scripts) and advanced GUI (any class gated by ADVANCED_GUI_DISABLED).
+## The class→option rules live in pipeline_defaults.gd, shared with
+## export_pruner's stale-profile guard.
 ##
 ## Run: godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 ##
@@ -31,6 +33,8 @@
 ## playthrough — dynamic ClassDB.instantiate("Name") calls with computed
 ## strings are invisible here (grep for ClassDB.instantiate before trusting).
 extends SceneTree
+
+const PipelineDefaults := preload("pipeline_defaults.gd")
 
 const REPORT_PATH := "res://tools/export_report.json"
 const PROFILE_PATH := "res://tools/engine.build"
@@ -83,25 +87,6 @@ const CLASS_MODULES := {
 	"UPNP": ["upnp"],
 }
 
-## Genuine navigation references by dimension ("2d"/"3d"). Deliberately NOT
-## driven by _keep: NavigationServer2D/3D sit in ESSENTIALS, and the API
-## closure drags in classes like NavigationPolygon through mere method
-## signatures (TileData.get_navigation_polygon), so _keep cannot distinguish
-## real use. Evidence comes from textual references (report engine_classes),
-## actual resource instances in used data, TileSet navigation layers, and
-## script calls into the navigation servers. A default-enabled flag
-## (TileMapLayer.navigation_enabled) is NOT evidence — see _nav_note callers.
-const NAV_CLASSES := {
-	"NavigationAgent2D": "2d", "NavigationRegion2D": "2d", "NavigationLink2D": "2d",
-	"NavigationObstacle2D": "2d", "NavigationPolygon": "2d",
-	"NavigationPathQueryParameters2D": "2d", "NavigationPathQueryResult2D": "2d",
-	"NavigationMeshSourceGeometryData2D": "2d",
-	"NavigationAgent3D": "3d", "NavigationRegion3D": "3d", "NavigationLink3D": "3d",
-	"NavigationObstacle3D": "3d", "NavigationMesh": "3d",
-	"NavigationPathQueryParameters3D": "3d", "NavigationPathQueryResult3D": "3d",
-	"NavigationMeshSourceGeometryData3D": "3d",
-}
-
 ## Used file extension -> modules needed to load it at runtime.
 const EXT_MODULES := {
 	"jpg": ["jpg"], "jpeg": ["jpg"],
@@ -124,21 +109,34 @@ var _keep := {}
 # alone drags Camera3D/Node3D into _keep for every project, so build
 # options (disable_3d) must be decided from this set, not from _keep.
 var _evidence := {}
-var _nav_evidence := {"2d": PackedStringArray(), "3d": PackedStringArray()}
-# TileMapLayer bodies talk straight to PhysicsServer2D — a project can have
-# working tile collision with zero CollisionObject2D nodes of its own, so
-# TileSet physics layers must count as 2D-physics use.
-var _tileset_has_physics := false
+# Subsystems decided from positive evidence, keyed by profile option name
+# minus the "disable_" prefix. Each entry lists human-readable proof of use;
+# an empty list at decision time turns the subsystem off (module dropped
+# where one exists, disable_* written into the profile). Default-enabled
+# flags (TileMapLayer.navigation_enabled) are NOT evidence — see _note
+# callers for what counts.
+var _subsystem_evidence := {
+	"navigation_2d": PackedStringArray(), "navigation_3d": PackedStringArray(),
+	"physics_2d": PackedStringArray(), "physics_3d": PackedStringArray(),
+	"advanced_gui": PackedStringArray(),
+}
 
 
-func _nav_note(dim: String, evidence: String) -> void:
-	if not evidence in _nav_evidence[dim]:
-		_nav_evidence[dim].append(evidence)
+func _note(subsystem: String, evidence: String) -> void:
+	if not evidence in _subsystem_evidence[subsystem]:
+		_subsystem_evidence[subsystem].append(evidence)
 
 
-func _evidence_class(c: String) -> void:
-	if ClassDB.class_exists(c):
+func _evidence_class(c: String, source := "") -> void:
+	if ClassDB.class_exists(c) and not _evidence.has(c):
 		_evidence[c] = true
+		# Class evidence doubles as subsystem evidence: nav classes, physics
+		# nodes AND the RefCounted query/space-state classes (a raycast-query
+		# script uses physics with zero CollisionObject nodes), advanced-GUI
+		# classes. disable_3d is decided from _evidence directly.
+		for opt in PipelineDefaults.class_disable_conflicts(c):
+			if opt != "disable_3d":
+				_note(String(opt).trim_prefix("disable_"), "%s %s" % [c, source])
 	_keep_class(c)
 
 
@@ -151,9 +149,7 @@ func _init() -> void:
 	var report: Dictionary = report_raw
 
 	for c in report.get("engine_classes", []):
-		_evidence_class(String(c))
-		if NAV_CLASSES.has(String(c)):
-			_nav_note(NAV_CLASSES[String(c)], "%s referenced in scenes/scripts" % c)
+		_evidence_class(String(c), "referenced in scenes/scripts")
 	for c in ESSENTIALS:
 		_keep_class(c)
 	# Whole subtrees the engine instantiates at runtime without any trace in
@@ -167,7 +163,7 @@ func _init() -> void:
 	# Objects embedded in project settings: Object(SomeClass, ...)
 	var re_obj := RegEx.create_from_string("Object\\((\\w+),")
 	for m in re_obj.search_all(FileAccess.get_file_as_string("res://project.godot")):
-		_evidence_class(m.get_string(1))
+		_evidence_class(m.get_string(1), "embedded in project.godot")
 
 	var used: Array = report.get("used", [])
 	_collect_from_resources(used)
@@ -180,27 +176,32 @@ func _init() -> void:
 		if parsed is Dictionary:
 			config = parsed
 
-	# Navigation is decided from positive evidence only: TileMapLayer ships
-	# with navigation_enabled=true by default, so "a nav-capable node exists"
-	# proves nothing. When no evidence exists the nav module is dropped AND
-	# the scene-side glue is compiled out (disable_navigation_2d/3d) — a
+	# Subsystems are decided from positive evidence only: default-enabled
+	# flags prove nothing (TileMapLayer ships with navigation_enabled=true).
+	# When no evidence exists the module is dropped (where one exists) AND
+	# the scene-side glue is compiled out via the disable_* build option — a
 	# nav-enabled TileMapLayer running against the module-less dummy server
-	# otherwise spams "navigation_map.is_null()" once per cell. export_pruner
-	# reads the flag from the written profile and additionally disables
-	# TileMapLayer/TileMap navigation in the exported scenes, which also
-	# silences templates built before this profile existed.
+	# otherwise spams "navigation_map.is_null()" once per cell. For
+	# navigation_2d, export_pruner reads the flag from the written profile
+	# and additionally disables TileMapLayer/TileMap navigation in the
+	# exported scenes, which also silences templates built before this
+	# profile existed.
+	var forcing_modules := {
+		"navigation_2d": "navigation_2d", "navigation_3d": "navigation_3d",
+		"godot_physics_2d": "physics_2d",
+		"godot_physics_3d": "physics_3d", "jolt_physics": "physics_3d",
+	}
 	for mod in config.get("build_extra_modules", []):
-		if String(mod) == "navigation_2d":
-			_nav_note("2d", "forced by config build_extra_modules")
-		elif String(mod) == "navigation_3d":
-			_nav_note("3d", "forced by config build_extra_modules")
-	var nav_used := {}
-	for dim in ["2d", "3d"]:
-		nav_used[dim] = not _nav_evidence[dim].is_empty()
-		if nav_used[dim]:
-			print("[build_profile_gen] navigation_%s in use: %s" % [dim, "; ".join(_nav_evidence[dim])])
+		if forcing_modules.has(String(mod)):
+			_note(forcing_modules[String(mod)], "forced by config build_extra_modules")
+	var sub_used := {}
+	for sub in _subsystem_evidence:
+		sub_used[sub] = not _subsystem_evidence[sub].is_empty()
+		if sub_used[sub]:
+			print("[build_profile_gen] %s in use: %s" % [sub, "; ".join(_subsystem_evidence[sub])])
 		else:
-			print("[build_profile_gen] navigation_%s unused — module dropped, disable_navigation_%s=yes; export_pruner disables TileMapLayer navigation in exported scenes." % [dim, dim])
+			var extra := " Export_pruner disables TileMapLayer navigation in exported scenes." if sub == "navigation_2d" else ""
+			print("[build_profile_gen] %s unused — disable_%s=yes.%s" % [sub, sub, extra])
 
 	# Ancestor closure runs inside _keep_class; now invert. Only Node and
 	# Resource descendants are disableable: core singletons and servers have
@@ -225,8 +226,11 @@ func _init() -> void:
 		"type": "build_profile",
 		"disabled_build_options": {
 			"disable_3d": not uses_3d,
-			"disable_navigation_2d": not nav_used["2d"],
-			"disable_navigation_3d": not nav_used["3d"],
+			"disable_advanced_gui": not sub_used["advanced_gui"],
+			"disable_navigation_2d": not sub_used["navigation_2d"],
+			"disable_navigation_3d": not sub_used["navigation_3d"],
+			"disable_physics_2d": not sub_used["physics_2d"],
+			"disable_physics_3d": not sub_used["physics_3d"],
 		},
 		"disabled_classes": disabled,
 	}
@@ -244,8 +248,8 @@ func _init() -> void:
 	var modules := {}
 	for mod in ALWAYS_MODULES:
 		modules[mod] = true
-	for dim in nav_used:
-		if nav_used[dim]:
+	for dim in ["2d", "3d"]:
+		if sub_used["navigation_%s" % dim]:
 			modules["navigation_%s" % dim] = true
 
 	# text_server_adv by default; the much smaller text_server_fb only on
@@ -267,15 +271,10 @@ func _init() -> void:
 		modules["glslang"] = true
 
 	# Physics implementations are modules too: without these, kept physics
-	# nodes get no server implementation at runtime.
-	var has_2d_physics := _tileset_has_physics
-	var has_3d_physics := false
-	for c in _evidence:
-		has_2d_physics = has_2d_physics or ClassDB.is_parent_class(c, "CollisionObject2D") or ClassDB.is_parent_class(c, "Joint2D")
-		has_3d_physics = has_3d_physics or ClassDB.is_parent_class(c, "CollisionObject3D") or ClassDB.is_parent_class(c, "Joint3D")
-	if has_2d_physics:
+	# nodes and space queries get no server implementation at runtime.
+	if sub_used["physics_2d"]:
 		modules["godot_physics_2d"] = true
-	if has_3d_physics:
+	if sub_used["physics_3d"]:
 		var engine_3d := String(ProjectSettings.get_setting("physics/3d/physics_engine", "DEFAULT"))
 		modules["jolt_physics" if engine_3d.contains("Jolt") else "godot_physics_3d"] = true
 
@@ -289,6 +288,15 @@ func _init() -> void:
 	for path in used:
 		for mod in EXT_MODULES.get(String(path).get_extension().to_lower(), []):
 			modules[mod] = true
+		# Textures imported as Basis Universal are transcoded at load time by
+		# the basis_universal module. The only trace is the importer setting
+		# in the .import sidecar — compress/mode=4 is COMPRESS_BASIS_UNIVERSAL
+		# (editor/import/resource_importer_texture.h; the layered-texture
+		# importer shares the enum) — the imported .ctex itself is opaque here.
+		if not modules.has("basis_universal"):
+			var import_sidecar := String(path) + ".import"
+			if FileAccess.file_exists(import_sidecar) and FileAccess.get_file_as_string(import_sidecar).contains("compress/mode=4"):
+				modules["basis_universal"] = true
 	for mod in config.get("build_extra_modules", []):
 		modules[String(mod)] = true
 	for mod in config.get("build_exclude_modules", []):
@@ -311,6 +319,11 @@ func _init() -> void:
 	var needs_d3d12 := rendering_method != "gl_compatibility" and rd_driver == "d3d12"
 	if not needs_d3d12:
 		extra_opts.append("d3d12=no")
+	# A gl_compatibility-only project never touches the RenderingDevice
+	# backends, so the whole Vulkan RD can be compiled out — derivable from
+	# the renderer setting, same as glslang above.
+	if rendering_method == "gl_compatibility":
+		extra_opts.append("vulkan=no")
 	if not (_keep.has("ZIPReader") or _keep.has("ZIPPacker")):
 		extra_opts.append("minizip=no")
 	# Architecture of the running editor — the sensible default for a
@@ -367,7 +380,7 @@ func _init() -> void:
 	if needs_d3d12:
 		print("[build_profile_gen] NOTE: d3d12 is kept (project renders through the d3d12 driver) — its SDK deps must be installed: misc/scripts/install_d3d12_sdk_windows.py")
 	if rendering_method == "gl_compatibility":
-		print("[build_profile_gen] NOTE: vulkan=no is additionally possible for gl_compatibility-only projects.")
+		print("[build_profile_gen] NOTE: vulkan=no added — the project renders with gl_compatibility only, so the Vulkan RenderingDevice backend is compiled out.")
 	if not winrt_ok:
 		print("[build_profile_gen] NOTE: winrt=no added — this machine's Windows SDK is older than 10.0.22621.")
 	print("[build_profile_gen] NOTE: if scons then asks for the AccessKit deps, either run misc/scripts/install_accesskit.py in the source checkout, or declare `\"build_extra_scons_args\": [\"accesskit=no\"]` in tools/export_analyzer.json (accesskit=no removes screen-reader support — an accessibility trade-off).")
@@ -430,13 +443,13 @@ func _collect_from_resources(used: Array) -> void:
 		if res is PackedScene:
 			var state: SceneState = res.get_state()
 			for i in state.get_node_count():
-				_evidence_class(state.get_node_type(i))
+				_evidence_class(state.get_node_type(i), "node in %s" % path)
 				for j in state.get_node_property_count(i):
 					# GridMap's nav path is off by default, so an explicit
 					# bake_navigation=true (the only reason it's serialized)
 					# is genuine 3D-navigation use.
 					if state.get_node_property_name(i, j) == &"bake_navigation" and bool(state.get_node_property_value(i, j)):
-						_nav_note("3d", "bake_navigation enabled in %s" % path)
+						_note("navigation_3d", "bake_navigation enabled in %s" % path)
 					_walk_value(state.get_node_property_value(i, j), visited)
 		else:
 			_walk_value(res, visited)
@@ -447,15 +460,16 @@ func _walk_value(value, visited: Dictionary) -> void:
 		if visited.has(value):
 			return
 		visited[value] = true
-		_evidence_class(value.get_class())
-		if NAV_CLASSES.has(value.get_class()):
-			_nav_note(NAV_CLASSES[value.get_class()], "a %s resource lives in used data" % value.get_class())
+		_evidence_class(value.get_class(), "resource instance in used data")
 		if value is TileSet:
 			var label: String = value.resource_path if not value.resource_path.is_empty() else "an embedded TileSet"
 			if value.get_navigation_layers_count() > 0:
-				_nav_note("2d", "%s defines navigation layers" % label)
+				_note("navigation_2d", "%s defines navigation layers" % label)
+			# TileMapLayer bodies talk straight to PhysicsServer2D — a project
+			# can have working tile collision with zero CollisionObject2D
+			# nodes of its own, so TileSet physics layers count as 2D physics.
 			if value.get_physics_layers_count() > 0:
-				_tileset_has_physics = true
+				_note("physics_2d", "%s defines physics layers" % label)
 		for prop in value.get_property_list():
 			if prop["type"] == TYPE_OBJECT or prop["type"] == TYPE_ARRAY or prop["type"] == TYPE_DICTIONARY:
 				_walk_value(value.get(prop["name"]), visited)
@@ -483,14 +497,27 @@ func _collect_from_scripts(used: Array) -> void:
 			if not seen.has(ident):
 				seen[ident] = true
 				if ClassDB.class_exists(ident):
-					_evidence_class(ident)
+					_evidence_class(ident, "identifier in %s" % path)
 		# The nav servers are in ESSENTIALS, so _keep can't tell whether a
 		# script actually talks to them — check the source text directly.
 		if code.contains("NavigationServer2D"):
-			_nav_note("2d", "%s calls NavigationServer2D" % path)
+			_note("navigation_2d", "%s calls NavigationServer2D" % path)
 		if code.contains("NavigationServer3D"):
-			_nav_note("3d", "%s calls NavigationServer3D" % path)
+			_note("navigation_3d", "%s calls NavigationServer3D" % path)
 		if code.contains("get_navigation_map") or code.contains("navigation_map_override"):
 			# World2D and World3D share these names — count both dimensions.
-			_nav_note("2d", "%s touches the world navigation map" % path)
-			_nav_note("3d", "%s touches the world navigation map" % path)
+			_note("navigation_2d", "%s touches the world navigation map" % path)
+			_note("navigation_3d", "%s touches the world navigation map" % path)
+		# Space queries need no physics class names at all
+		# (get_world_2d().direct_space_state.intersect_ray(...) with untyped
+		# params built elsewhere), so probe the property name textually. The
+		# dimension comes from world_2d/world_3d hints in the same script;
+		# with no hint at all, 2D is assumed — a 3D script that stores the
+		# state or the query params in a typed way names a Physics*3D class
+		# and is caught by the identifier scan above.
+		if code.contains("direct_space_state"):
+			var hint_3d := code.contains("world_3d") or code.contains("World3D")
+			if code.contains("world_2d") or code.contains("World2D") or not hint_3d:
+				_note("physics_2d", "%s queries direct_space_state" % path)
+			if hint_3d:
+				_note("physics_3d", "%s queries direct_space_state" % path)
