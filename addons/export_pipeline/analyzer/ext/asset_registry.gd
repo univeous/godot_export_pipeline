@@ -24,6 +24,9 @@ var _patterns := {}
 ##                 used: {member: String evidence} }
 var _registries := {}
 
+var _asset_owner := {}  # simplified asset path -> [class name, member]
+var _asset_owner_built := false
+
 var _re_class := RegEx.create_from_string("(?m)^class_name\\s+([A-Za-z_]\\w*)")
 var _re_dictpath := RegEx.create_from_string("\"([A-Za-z_]\\w*)\"\\s*:\\s*\"(res://[^\"]+)\"")
 var _re_strpath := RegEx.create_from_string("(?m)^static\\s+var\\s+([A-Za-z_]\\w*)[^=\\n]*:?=\\s*\"(res://[^\"]+)\"")
@@ -134,6 +137,28 @@ func finalize(analyzer) -> bool:
 			for asset in reg["members"][member]:
 				analyzer.mark_used(asset, "<registry %s.%s>" % [cname, member])
 	return changed
+
+
+## Per-file evidence for the report: an unused registry asset is not
+## "unreferenced" — its wholesale marking was deliberately suppressed and
+## the owning member was never used (or the registry itself is unreachable).
+func explain_unused(analyzer, path: String) -> String:
+	if not _asset_owner_built:
+		_asset_owner_built = true
+		for cname in _registries:
+			var members: Dictionary = _registries[cname]["members"]
+			for member in members:
+				for asset in members[member]:
+					var p := String(asset).simplify_path()
+					if not _asset_owner.has(p):
+						_asset_owner[p] = [cname, member]
+	if not _asset_owner.has(path):
+		return ""
+	var owner: Array = _asset_owner[path]
+	var reg: Dictionary = _registries[owner[0]]
+	if not analyzer.is_used(reg["script"]):
+		return "asset of registry member %s.%s — the registry script itself (%s) is unreachable" % [owner[0], owner[1], reg["script"]]
+	return "asset gated by registry member %s.%s — the member is never referenced from used code (registry paths are deliberately not marked wholesale)" % [owner[0], owner[1]]
 
 
 func report(analyzer) -> Dictionary:

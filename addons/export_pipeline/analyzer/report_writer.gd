@@ -44,6 +44,10 @@ static func _markdown(data: Dictionary, ext_md: Dictionary) -> PackedStringArray
 	md.append("|---|---|---|")
 	md.append("| Used (runtime-reachable) | %d | %s |" % [totals["used_count"], String.humanize_size(totals["used_size"])])
 	md.append("| Unused resources | %d | %s |" % [totals["unused_count"], String.humanize_size(totals["unused_size"])])
+	if totals.has("excluded_count"):
+		md.append("| — of which excluded on purpose (config/extension) | %d | |" % totals["excluded_count"])
+	if int(totals.get("excluded_but_referenced_count", 0)) > 0:
+		md.append("| — **excluded but still referenced (broken by pruning!)** | %d | |" % totals["excluded_but_referenced_count"])
 	md.append("| Non-resource files (never exported) | %d | %s |" % [totals["non_resource_count"], String.humanize_size(totals["non_resource_size"])])
 	md.append("")
 
@@ -55,6 +59,21 @@ static func _markdown(data: Dictionary, ext_md: Dictionary) -> PackedStringArray
 			md.append("- %s" % w)
 		md.append("")
 
+	var evidence: Dictionary = data.get("unused_evidence", {})
+	var critical := []
+	for path in data["unused"]:
+		if evidence.has(path) and evidence[path].get("status", "") == "excluded_but_referenced":
+			critical.append(path)
+	if not critical.is_empty():
+		md.append("## Excluded but still referenced (%d)" % critical.size())
+		md.append("")
+		md.append("These files are excluded by config or an extension, yet reachable code still references them — the exported game will miss them:")
+		md.append("")
+		for path in critical:
+			var ev: Dictionary = evidence[path]
+			md.append("- %s  <- %s  (excluded by %s: %s)" % [path, ", ".join(ev.get("refs_from_reachable", [])), ev.get("excluded_source", "?"), ev.get("excluded_by", "?")])
+		md.append("")
+
 	md.append("## Used files (%d)" % totals["used_count"])
 	md.append("")
 	for path in data["used"]:
@@ -63,8 +82,9 @@ static func _markdown(data: Dictionary, ext_md: Dictionary) -> PackedStringArray
 
 	md.append("## Unused resources (%d)" % totals["unused_count"])
 	md.append("")
-	md.append("Candidates for skip() in the export plugin, grouped by directory:")
+	md.append("Candidates for skip() in the export plugin, grouped by directory. Each entry carries its evidence: excluded on purpose (and by whom), gated by an extension, or genuinely unreferenced.")
 	md.append("")
+	var excluded_prefixes: Dictionary = data.get("excluded_prefixes", {})
 	var by_dir := {}
 	for path in data["unused"]:
 		var d: String = String(path).get_base_dir()
@@ -75,9 +95,17 @@ static func _markdown(data: Dictionary, ext_md: Dictionary) -> PackedStringArray
 	var dirs := by_dir.keys()
 	dirs.sort()
 	for d in dirs:
-		md.append("### %s (%d files, %s)" % [d, by_dir[d]["files"].size(), String.humanize_size(by_dir[d]["size"])])
+		var dir_tag := ""
+		for prefix in excluded_prefixes:
+			if (String(d) + "/").begins_with(String(prefix)) or String(d) == String(prefix).trim_suffix("/"):
+				dir_tag = " — excluded by %s (%s)" % [excluded_prefixes[prefix], prefix]
+				break
+		md.append("### %s (%d files, %s)%s" % [d, by_dir[d]["files"].size(), String.humanize_size(by_dir[d]["size"]), dir_tag])
 		for path in by_dir[d]["files"]:
-			md.append("- %s (%s)" % [String(path).get_file(), String.humanize_size(int(sizes.get(path, 0)))])
+			var note := ""
+			if evidence.has(path):
+				note = " — " + String(evidence[path].get("evidence", ""))
+			md.append("- %s (%s)%s" % [String(path).get_file(), String.humanize_size(int(sizes.get(path, 0))), note])
 		md.append("")
 
 	var ext_json: Dictionary = data["extensions"]

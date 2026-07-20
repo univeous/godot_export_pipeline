@@ -21,6 +21,10 @@ godot --headless --path . -s addons/export_pipeline/analyzer/export_analyzer.gd
 
 # 2. 看报告
 tools/export_report.html   # 人类友好（另有 .md / .json）
+#    每个 unused 文件都带证据：被刻意排除（写明是哪条配置 / 哪个扩展）、
+#    被扩展拦截（如未使用的 registry 成员）、只被其他不可达文件引用、
+#    或确实全项目找不到任何引用。被排除但仍被可达代码引用的文件单列一节
+#    ——剪掉它们会导致运行时缺文件。
 
 # 3. 根据警告调整 tools/export_analyzer.json（见下），重跑，
 #    直到你关心的警告清零。
@@ -115,6 +119,9 @@ func process_script(analyzer, path, raw, code) -> bool
 func finalize(analyzer) -> bool     # fixpoint 迭代；标记了新文件返回 true
 func report(analyzer) -> Dictionary # 并入报告 JSON
 func report_markdown(analyzer) -> PackedStringArray
+func explain_unused(analyzer, path) -> String
+                                     # 为扩展所拦截的 unused 文件给出证据行
+                                     # （"" = 与本扩展无关）
 # 裁剪侧钩子（完整清单见 export_pruner.gd 头部注释）：
 func customize_resource(resource, path) -> Resource  # null = 不修改
 func customize_scene(scene: Node, path) -> Node      # null = 不修改

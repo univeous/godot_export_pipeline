@@ -48,7 +48,7 @@ static func excluded_folders(is_debug: bool) -> Array[String]:
 func setup(analyzer) -> void:
 	_editor_only = excluded_folders(false)
 	for folder in _editor_only:
-		analyzer.add_editor_only(folder)
+		analyzer.add_editor_only(folder, "colored_folders (folder color)")
 	var colors: Dictionary = ProjectSettings.get_setting("file_customization/folder_colors", {})
 	for folder in colors:
 		if int(ProjectSettings.get_setting(

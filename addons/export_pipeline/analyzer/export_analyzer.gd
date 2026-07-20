@@ -58,6 +58,10 @@ var _class_regexes := {}       # global class_name -> RegEx
 var _text_cache := {}  # path -> comment-stripped text of used scripts/content files
 var _text_scan_exts: Array = []   # content extensions scanned like dialogue files
 
+var _editor_only_sources := {}  # editor_only prefix -> who declared it (config / extension)
+var _excluded_refs := {}        # editor-only path -> Array[String] referrers whose reference was dropped
+var _unused_refs := {}          # unused path -> Array[String] unreachable files that reference it
+
 ## Analyzer extensions: scripts listed in the "extensions" config key.
 ## Contract (all methods optional):
 ##   func extension_name() -> String
@@ -75,6 +79,10 @@ var _text_scan_exts: Array = []   # content extensions scanned like dialogue fil
 ##                                           # marked (will run again)
 ##   func report(analyzer) -> Dictionary     # merged into the report JSON
 ##   func report_markdown(analyzer) -> PackedStringArray  # md detail section
+##   func explain_unused(analyzer, path) -> String
+##                                           # evidence line for one unused
+##                                           # file the extension gated
+##                                           # ("" = no claim)
 ## Extensions use the public helpers below (mark_used, is_used, ...).
 var _extensions: Array = []
 
@@ -90,6 +98,8 @@ func _init() -> void:
 	var start := Time.get_ticks_msec()
 	_compile_regexes()
 	_load_config()
+	for prefix in _config.get("editor_only", []):
+		_editor_only_sources[String(prefix)] = "config editor_only"
 	_text_scan_exts = _config.get("text_scan_extensions", ["dialogue"])
 	var defaults = load("res://addons/export_pipeline/pipeline_defaults.gd")
 	for ext_path in _config.get("extensions", defaults.DEFAULT_EXTENSIONS):
@@ -105,6 +115,7 @@ func _init() -> void:
 	_scan_filesystem("res://")
 	_seed_roots()
 	_traverse()
+	_scan_unused_refs()
 	_write_reports()
 	print("[export_analyzer] done in %d ms" % (Time.get_ticks_msec() - start))
 	quit()
@@ -249,6 +260,8 @@ func _seed_roots() -> void:
 			prop = section2.path_join(pm.get_string(1)) if not section2.is_empty() else pm.get_string(1)
 		if prop in EDITOR_ONLY_SETTINGS or prop in ignored:
 			continue
+		if prop.begins_with("autoload/"):
+			continue # the dedicated autoload loop above handled these (incl. editor-only drops)
 		var owned_by_excluded_addon := false
 		for ip in ignored_prefixes:
 			if prop.begins_with(ip):
@@ -284,11 +297,14 @@ func get_config(key: String, default = null):
 
 ## Adds a res:// prefix to the editor_only blacklist at runtime (used by
 ## extensions that derive exclusions from project state, e.g. folder colors).
-func add_editor_only(prefix: String) -> void:
+## `source` names the declarer so the report can say WHO excluded a file.
+func add_editor_only(prefix: String, source := "extension") -> void:
 	if not _config.has("editor_only"):
 		_config["editor_only"] = []
 	if not prefix in _config["editor_only"]:
 		_config["editor_only"].append(prefix)
+	if not _editor_only_sources.has(prefix):
+		_editor_only_sources[prefix] = source
 
 
 ## Comment-stripped text of every traversed script/content file.
@@ -322,6 +338,14 @@ func _mark_used(ref: String, referrer: String) -> void:
 
 	for prefix in _config.get("editor_only", []):
 		if path.begins_with(String(prefix)):
+			# The reference is dropped, but not forgotten: the report must
+			# distinguish "excluded and unreferenced" from "excluded BUT
+			# something reachable still points at it".
+			if not _excluded_refs.has(path):
+				_excluded_refs[path] = []
+			var excluded: Array = _excluded_refs[path]
+			if excluded.size() < 8 and not referrer in excluded:
+				excluded.append(referrer)
 			# A reference from real runtime code into the editor-only
 			# blacklist would break in the exported game — flag it.
 			if referrer.begins_with("res://"):
@@ -388,6 +412,58 @@ func _traverse() -> void:
 				changed = e.finalize(self) or changed
 		if changed:
 			_drain_queue()
+
+
+## Evidence pass over the files traversal never reached: unused files can
+## still reference each other (an unreachable scene pulling an unreachable
+## texture), and the report should say "referenced only from unreachable
+## files X, Y" instead of leaving "unused" unexplained.
+func _scan_unused_refs() -> void:
+	for path in _all_files:
+		if _used.has(String(path)):
+			continue
+		var targets := {}
+		var ext := String(path).get_extension().to_lower()
+		if ext == "gd" or ext in TEXT_FORMATS or ext in _text_scan_exts:
+			var code := _strip_comments(FileAccess.get_file_as_string(path))
+			for m in _re_quoted_path.search_all(code):
+				targets[m.get_string(1)] = true
+			if ext == "gd":
+				for m in _re_rel_path.search_all(code):
+					var rel := m.get_string(1)
+					if rel.is_empty():
+						rel = m.get_string(2)
+					if not rel.begins_with("res://") and not rel.begins_with("uid://"):
+						targets[String(path).get_base_dir().path_join(rel)] = true
+		elif ext in ["res", "scn"]:
+			for dep in ResourceLoader.get_dependencies(path):
+				for piece in String(dep).split("::"):
+					if piece.begins_with("res://") or piece.begins_with("uid://"):
+						targets[piece] = true
+		for t in targets:
+			var target := _resolve_res_ref(String(t))
+			if target.is_empty() or target == String(path):
+				continue
+			if not _all_files.has(target) or _used.has(target):
+				continue
+			if not _unused_refs.has(target):
+				_unused_refs[target] = []
+			var refs: Array = _unused_refs[target]
+			if refs.size() < 8 and not String(path) in refs:
+				refs.append(String(path))
+
+
+## uid:// or res:// reference text -> canonical res:// path ("" if unresolvable).
+func _resolve_res_ref(ref: String) -> String:
+	var path := ref
+	if path.begins_with("uid://"):
+		var id := ResourceUID.text_to_id(path)
+		if not ResourceUID.has_id(id):
+			return ""
+		path = ResourceUID.get_id_path(id)
+	if not path.begins_with("res://"):
+		return ""
+	return path.simplify_path()
 
 
 func _drain_queue() -> void:
@@ -546,6 +622,21 @@ func _write_reports() -> void:
 	var engine_classes := _engine_classes.keys()
 	engine_classes.sort()
 
+	# Per-file evidence: WHY is each unused file unused — deliberately
+	# excluded (config/extension, and by whom), gated by an extension,
+	# referenced only from unreachable files, or genuinely unreferenced.
+	# Exclusion and "no references found" can both hold; the entry says so.
+	var unused_evidence := {}
+	var excluded_count := 0
+	var excluded_but_referenced := 0
+	for path in unused_paths:
+		var entry := _unused_evidence_for(path)
+		unused_evidence[path] = entry
+		if entry.has("excluded_by"):
+			excluded_count += 1
+		if entry["status"] == "excluded_but_referenced":
+			excluded_but_referenced += 1
+
 	var ext_json := {}
 	var ext_md := {}
 	for e in _extensions:
@@ -560,6 +651,8 @@ func _write_reports() -> void:
 		"project": ProjectSettings.get_setting("application/config/name", ""),
 		"used": used_paths,
 		"unused": unused_paths,
+		"unused_evidence": unused_evidence,
+		"excluded_prefixes": _editor_only_sources,
 		"warnings": _warnings,
 		"engine_classes": engine_classes,
 		"extensions": ext_json,
@@ -570,6 +663,8 @@ func _write_reports() -> void:
 			"used_size": used_size,
 			"unused_count": unused_paths.size(),
 			"unused_size": unused_size,
+			"excluded_count": excluded_count,
+			"excluded_but_referenced_count": excluded_but_referenced,
 			"non_resource_count": _non_resource_files.size(),
 			"non_resource_size": _sum(_non_resource_files),
 		},
@@ -578,12 +673,69 @@ func _write_reports() -> void:
 	var writer = load("res://addons/export_pipeline/analyzer/report_writer.gd")
 	writer.write_all(data, ext_md)
 
-	print("[export_analyzer] used: %d files (%s), unused: %d files (%s), warnings: %d" % [
+	print("[export_analyzer] used: %d files (%s), unused: %d files (%s, %d excluded on purpose), warnings: %d" % [
 		used_paths.size(), String.humanize_size(used_size),
 		unused_paths.size(), String.humanize_size(unused_size),
-		_warnings.size(),
+		excluded_count, _warnings.size(),
 	])
+	if excluded_but_referenced > 0:
+		print("[export_analyzer] ATTENTION: %d excluded file(s) are still referenced from reachable code — see the report's 'Excluded but still referenced' section." % excluded_but_referenced)
 	print("[export_analyzer] reports: tools/export_report.{md,json,html}")
+
+
+## Assembles the evidence entry for one unused file.
+## status values:
+##   excluded_but_referenced  excluded by config/extension, yet reachable
+##                            code still references it — pruning breaks those
+##   excluded                 excluded on purpose (source named); may also be
+##                            unreferenced or referenced from unreachable files
+##   gated_by_extension       an extension suppressed its marking and explains
+##   unreachable              referenced only from other unreachable files
+##   no_references            nothing in any scanned file references it
+func _unused_evidence_for(path: String) -> Dictionary:
+	var entry := {}
+	for prefix in _config.get("editor_only", []):
+		if path.begins_with(String(prefix)):
+			entry["excluded_by"] = String(prefix)
+			entry["excluded_source"] = String(_editor_only_sources.get(String(prefix), "extension"))
+			break
+	if _excluded_refs.has(path):
+		entry["refs_from_reachable"] = _excluded_refs[path]
+	if _unused_refs.has(path):
+		entry["refs_from_unreachable"] = _unused_refs[path]
+	var notes := PackedStringArray()
+	for e in _extensions:
+		if e.has_method("explain_unused"):
+			var note: String = e.explain_unused(self, path)
+			if not note.is_empty():
+				notes.append(note)
+	if not notes.is_empty():
+		entry["extension_notes"] = notes
+
+	var unreachable_tail := ""
+	if entry.has("refs_from_unreachable"):
+		unreachable_tail = "; referenced only from unreachable files: %s" % ", ".join(entry["refs_from_unreachable"])
+	if entry.has("excluded_by"):
+		var head := "excluded by %s (%s)" % [entry["excluded_source"], entry["excluded_by"]]
+		if entry.has("refs_from_reachable"):
+			entry["status"] = "excluded_but_referenced"
+			entry["evidence"] = "%s BUT still referenced from reachable code: %s — pruning breaks these references" % [head, ", ".join(entry["refs_from_reachable"])]
+		elif entry.has("refs_from_unreachable"):
+			entry["status"] = "excluded"
+			entry["evidence"] = head + unreachable_tail
+		else:
+			entry["status"] = "excluded"
+			entry["evidence"] = "%s; additionally, no reference to it was found in any scanned file" % head
+	elif not notes.is_empty():
+		entry["status"] = "gated_by_extension"
+		entry["evidence"] = "; ".join(notes) + unreachable_tail
+	elif entry.has("refs_from_unreachable"):
+		entry["status"] = "unreachable"
+		entry["evidence"] = "not reachable from any runtime root" + unreachable_tail
+	else:
+		entry["status"] = "no_references"
+		entry["evidence"] = "no reference found in any scanned file (runtime roots, used files and unused files were all scanned)"
+	return entry
 
 
 func _sum(d: Dictionary) -> int:

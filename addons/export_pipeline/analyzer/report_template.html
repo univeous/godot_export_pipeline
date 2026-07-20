@@ -31,6 +31,8 @@ section {
   margin-bottom: 14px; padding: 14px 18px;
 }
 /* used/unused get tinted backgrounds so the two lists read apart at a glance */
+#sec-excluded-ref { background: #2b1d1d; border-color: #5a3a40; }
+#sec-excluded-ref > .head h2 { color: var(--bad); }
 #sec-unused { background: #251d20; border-color: #4a3238; }
 #sec-unused > .head h2 { color: var(--bad); }
 #sec-unused details > summary { background: #2e2429; }
@@ -89,6 +91,10 @@ pre { background: var(--panel2); padding: 10px; border-radius: 6px; overflow: au
     <label class="toggle"><input type="checkbox" id="show-addon-warn"> show addon warnings (<span id="addon-warn-count">0</span> hidden)</label>
   </div>
   <ul id="warning-list"></ul>
+</section>
+<section id="sec-excluded-ref" hidden>
+  <div class="head"><h2>Excluded but still referenced</h2><span class="count" id="exref-count"></span></div>
+  <ul id="exref-list"></ul>
 </section>
 <section id="sec-registries" hidden>
   <div class="head"><h2>Asset registries</h2><span class="count" id="reg-count"></span></div>
@@ -177,6 +183,9 @@ $("meta").textContent = `${REPORT.project} — generated ${REPORT.generated}`;
 $("cards").innerHTML = `
   <div class="card ok"><div class="num">${T.used_count}</div><div class="sub">used files · ${humanSize(T.used_size)}</div></div>
   <div class="card bad"><div class="num">${T.unused_count}</div><div class="sub">unused files · ${humanSize(T.unused_size)}</div></div>
+  <div class="card"><div class="num">${T.excluded_count || 0}</div><div class="sub">excluded on purpose</div></div>` +
+  ((T.excluded_but_referenced_count || 0) ?
+  `<div class="card bad"><div class="num">${T.excluded_but_referenced_count}</div><div class="sub">excluded BUT referenced</div></div>` : "") + `
   <div class="card warn"><div class="num">${REPORT.warnings.length}</div><div class="sub">warnings</div></div>
   <div class="card"><div class="num">${REPORT.engine_classes.length}</div><div class="sub">engine classes</div></div>`;
 
@@ -290,10 +299,40 @@ if (Object.keys(ts).length) {
   }
 }
 
+// ── excluded but still referenced (critical: pruning breaks these) ──────
+const EVIDENCE = REPORT.unused_evidence || {};
+{
+  const exref = Object.keys(EVIDENCE).filter((p) => EVIDENCE[p].status === "excluded_but_referenced").sort();
+  if (exref.length) {
+    $("sec-excluded-ref").hidden = false;
+    $("exref-count").textContent = `${exref.length} file(s) — the export will miss them`;
+    $("exref-list").innerHTML = exref.map((p) =>
+      `<li class="warn"><span class="path">${esc(p)}</span> &larr; ${(EVIDENCE[p].refs_from_reachable || []).map(refChip).join("")}` +
+      ` <span class="ref">(excluded by ${esc(EVIDENCE[p].excluded_source || "?")}: ${esc(EVIDENCE[p].excluded_by || "?")})</span></li>`).join("");
+  }
+}
+
 // ── unused / used / classes ─────────────────────────────────────────────
+// Every unused entry carries its evidence: why it is unused, as a chip
+// (hover for the full sentence).
+function evidenceChip(p) {
+  const ev = EVIDENCE[p];
+  if (!ev) return "";
+  const label = {
+    excluded_but_referenced: "excluded BUT referenced",
+    excluded: "excluded: " + (ev.excluded_source || "?"),
+    gated_by_extension: "extension-gated",
+    unreachable: "ref'd by unreachable only",
+    no_references: "no refs found",
+  }[ev.status] || ev.status;
+  const cls = ev.status === "excluded_but_referenced" ? "chip dead"
+    : ev.status === "no_references" ? "chip ref" : "chip kept";
+  return `<span class="${cls}" title="${esc(ev.evidence || "")}">${esc(label)}</span>`;
+}
+
 $("unused-count").textContent = `${T.unused_count} files · ${humanSize(T.unused_size)} — skip() candidates`;
 renderDirGroups($("unused-list"), REPORT.unused, (p) =>
-  `<div>${esc(p.substring(p.lastIndexOf("/") + 1))} <span class="size">${humanSize(REPORT.sizes[p] || 0)}</span></div>`);
+  `<div>${esc(p.substring(p.lastIndexOf("/") + 1))} ${evidenceChip(p)}<span class="size">${humanSize(REPORT.sizes[p] || 0)}</span></div>`);
 
 // Referrers render as short chips: file referrers show their basename
 // (hover for the full path), root markers (<autoload>, <config>,

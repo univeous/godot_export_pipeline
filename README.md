@@ -22,6 +22,11 @@ godot --headless --path . -s addons/export_pipeline/analyzer/export_analyzer.gd
 
 # 2. Read the report
 tools/export_report.html   # human-friendly (also .md / .json)
+#    Every unused file carries evidence: excluded on purpose (and by which
+#    config entry / extension), gated by an extension (e.g. an unused
+#    registry member), referenced only from unreachable files, or genuinely
+#    unreferenced. Files that are excluded BUT still referenced from
+#    reachable code get their own section — pruning would break those.
 
 # 3. Fix warnings via tools/export_analyzer.json (see below), re-run,
 #    repeat until the warnings you care about are gone.
@@ -124,6 +129,9 @@ func process_script(analyzer, path, raw, code) -> bool
 func finalize(analyzer) -> bool     # fixpoint pass; true = marked new files
 func report(analyzer) -> Dictionary # merged into report JSON
 func report_markdown(analyzer) -> PackedStringArray
+func explain_unused(analyzer, path) -> String
+                                     # evidence line for an unused file the
+                                     # extension gated ("" = no claim)
 # pruner-side (see export_pruner.gd header for the full list):
 func customize_resource(resource, path) -> Resource  # or null = unchanged
 func customize_scene(scene: Node, path) -> Node      # or null = unchanged
