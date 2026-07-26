@@ -485,7 +485,8 @@ func _drain_queue() -> void:
 			_extract_text_resource_deps(path)
 		elif ext in ["res", "scn"]:
 			_extract_loader_deps(path)
-		# other extensions are leaves (textures, audio, fonts, ...)
+		else:
+			_extract_imported_deps(path)
 
 
 ## Binary resources: GDScript's loader is broken (godot#90643) but the
@@ -496,6 +497,52 @@ func _extract_loader_deps(path: String) -> void:
 		for piece in String(dep).split("::"):
 			if piece.begins_with("res://") or piece.begins_with("uid://"):
 				_mark_used(piece, path)
+
+
+## Everything that is not a script, a text resource or a .res/.scn.
+##
+## These used to be treated as dependency-free leaves, which is wrong for two
+## common shapes and silently broke exports:
+##
+##   * Imported 3D scenes (.glb/.fbx/.gltf). Their textures are extracted by
+##     the importer into sibling .png files, and only the *imported* .scn
+##     references them. Calling get_dependencies() on the SOURCE path returns
+##     nothing, so every extracted texture looked unreferenced.
+##   * Binary resources with a project-specific extension (.lmbake holds a
+##     LightmapGIData pointing at the baked .exr). Not "res"/"scn", so the
+##     branch above never saw them.
+##
+## Pruning those leaves the exported .pck without the imported .ctex, the
+## remap disappears, and the loader falls back to the raw source file:
+##     No loader found for resource: res://....png (expected type: Texture2D)
+## which aborts loading the whole scene.
+##
+## The .import sidecar is the only place that records where the imported
+## artifacts live, so resolve through it before asking for dependencies.
+func _extract_imported_deps(path: String) -> void:
+	var import_path := path + ".import"
+	if not FileAccess.file_exists(import_path):
+		_mark_deps_of(path, path)
+		return
+	var cfg := ConfigFile.new()
+	if cfg.load(import_path) != OK:
+		return
+	var target := str(cfg.get_value("remap", "path", ""))
+	if not target.is_empty():
+		_mark_deps_of(target, path)
+		return
+	# Multi-artifact importers write deps/dest_files instead of remap/path.
+	for f in cfg.get_value("deps", "dest_files", []):
+		_mark_deps_of(str(f), path)
+
+
+func _mark_deps_of(target: String, referrer: String) -> void:
+	if target.is_empty() or not ResourceLoader.exists(target):
+		return
+	for dep in ResourceLoader.get_dependencies(target):
+		for piece in String(dep).split("::"):
+			if piece.begins_with("res://") or piece.begins_with("uid://"):
+				_mark_used(piece, referrer)
 
 
 func _extract_text_resource_deps(path: String) -> void:
