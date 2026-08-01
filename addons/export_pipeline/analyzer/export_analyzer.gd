@@ -45,6 +45,14 @@ const EDITOR_ONLY_SETTINGS := [
 	"internationalization/locale/translations_pot_files",
 ]
 
+## project.godot settings whose quoted paths carry a trailing ":<locale>"
+## that is NOT part of the path — translation remaps are stored as
+##   { "res://icon.png": PackedStringArray("res://icon-ru.png:ru", ...) }
+## and the engine splits at the last ':' (ResourceLoader::_path_remap).
+const LOCALE_SUFFIXED_SETTINGS := [
+	"internationalization/locale/translation_remaps",
+]
+
 var _config := {}
 var _all_files := {}           # path -> size (resource-extension files only)
 var _non_resource_files := {}  # path -> size
@@ -269,12 +277,27 @@ func _seed_roots() -> void:
 				break
 		if owned_by_excluded_addon:
 			continue
+		var locale_suffixed := prop in LOCALE_SUFFIXED_SETTINGS
 		for m in _re_quoted_path.search_all(stripped):
-			_mark_used(m.get_string(1), "<project.godot %s>" % prop)
+			var ref := m.get_string(1)
+			if locale_suffixed:
+				ref = _strip_locale_suffix(ref)
+			_mark_used(ref, "<project.godot %s>" % prop)
 
 	for key in ["extra_roots", "dynamic_load_whitelist"]:
 		for root in _config.get(key, []):
 			_mark_used(String(root), "<config %s>" % key)
+
+
+## Drops a translation remap's trailing ":<locale>" ("res://a.png:pt_BR").
+## The dictionary keys (source paths) carry no suffix, and the only other
+## ':' in a well-formed entry is the "res://" / "uid://" scheme separator —
+## so a colon past the scheme is the locale separator, as the engine reads it.
+func _strip_locale_suffix(ref: String) -> String:
+	var split := ref.rfind(":")
+	if split <= ref.find("://"):
+		return ref
+	return ref.left(split)
 
 
 # ── Public API for analyzer extensions ─────────────────────────────────────
