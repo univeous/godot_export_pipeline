@@ -176,9 +176,13 @@ func _evidence_class(c: String, source := "") -> void:
 
 
 func _init() -> void:
+	if not FileAccess.file_exists(REPORT_PATH):
+		push_error("[build_profile_gen] no report at %s; run the analyzer first" % REPORT_PATH)
+		quit(1)
+		return
 	var report_raw = JSON.parse_string(FileAccess.get_file_as_string(REPORT_PATH))
-	if report_raw == null:
-		push_error("run addons/export_pipeline/analyzer/export_analyzer.gd first — no report at %s" % REPORT_PATH)
+	if not report_raw is Dictionary:
+		push_error("[build_profile_gen] invalid analyzer report at %s; run the analyzer again" % REPORT_PATH)
 		quit(1)
 		return
 	var report: Dictionary = report_raw

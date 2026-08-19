@@ -43,9 +43,17 @@ func _run_analysis() -> void:
 
 ## Regenerates tools/engine.build and prints the full scons command.
 func _generate_build_profile() -> void:
-	_run_headless(PROFILE_GEN, func(exit_code: int) -> void:
-		if exit_code != 0:
-			push_error("Build profile generation failed (exit %d); see output above." % exit_code)
+	# The profile is derived from the analyzer report. Run the analyzer first so
+	# this menu item also works on a fresh install, where neither the default
+	# config nor tools/export_report.json exists yet.
+	_run_headless(ANALYZER, func(analysis_exit: int) -> void:
+		if analysis_exit != 0:
+			push_error("Export analysis failed (exit %d); build profile was not generated." % analysis_exit)
+			return
+		_run_headless(PROFILE_GEN, func(profile_exit: int) -> void:
+			if profile_exit != 0:
+				push_error("Build profile generation failed (exit %d); see output above." % profile_exit)
+		)
 	)
 
 
@@ -84,6 +92,8 @@ func _finish_job(output: Array, exit_code: int, on_done: Callable) -> void:
 		for line in String(chunk).split("\n"):
 			if "[export_analyzer]" in line or "[build_profile_gen]" in line:
 				_echo(line.strip_edges())
+			elif exit_code != 0 and (line.begins_with("ERROR:") or line.begins_with("SCRIPT ERROR:")):
+				_echo("[export_pipeline] %s" % line.strip_edges())
 	on_done.call(exit_code)
 
 

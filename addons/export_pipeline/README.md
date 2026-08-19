@@ -64,9 +64,14 @@ You need a working Godot build environment before using this part. The plugin
 does not install Python, SCons, a compiler, or platform SDKs. Start with the
 [official Godot compilation documentation](https://docs.godotengine.org/en/stable/contributing/development/compiling/index.html).
 
-Run **Project > Tools > Generate Build Profile**, or execute:
+Run **Project > Tools > Generate Build Profile**. The menu runs the analyzer
+first; on a fresh install this also creates the default configuration and
+report before generating the build profile and printing the SCons command.
+
+From the command line, run the analyzer first:
 
 ```sh
+godot --headless --path . -s addons/export_pipeline/analyzer/export_analyzer.gd
 godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 ```
 

@@ -55,9 +55,14 @@ Godot 自带的 `--export-debug` / `--export-release` 即可。
 编译器或平台 SDK。请先看
 [Godot 官方编译文档](https://docs.godotengine.org/zh-cn/stable/contributing/development/compiling/index.html)。
 
-从 **项目 > 工具 > Generate Build Profile** 运行，或执行：
+从 **项目 > 工具 > Generate Build Profile** 运行。菜单会先自动分析项目；首次
+运行时也会一并创建默认配置和报告，然后再生成 build profile、打印 SCons
+命令。
+
+如果从命令行运行，请先执行分析器：
 
 ```sh
+godot --headless --path . -s addons/export_pipeline/analyzer/export_analyzer.gd
 godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 ```
 
