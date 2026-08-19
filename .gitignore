@@ -1,5 +1,7 @@
 # Godot editor state and imported cache
 .godot/
+/addons/export_pipeline/icon.png.import
+/addons/export_pipeline/icon.svg.import
 
 # Operating-system metadata
 .DS_Store
