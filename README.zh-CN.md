@@ -21,7 +21,8 @@
 
 下载仓库，把 `addons/export_pipeline/` 放到项目的同名目录，然后在**项目 > 项目设置 > 插件** 中启用 **Export Pipeline**。
 
-### 裁剪 PCK
+<details>
+<summary><strong>裁剪 PCK</strong></summary>
 
 像以前一样导出，只需把导出预设的资源过滤设为**导出所有资源**。插件会在导出时运行分析，并从最终 PCK 中跳过不可达文件。
 
@@ -34,7 +35,10 @@
 
 `res://tools/` 目前还是固定路径，不能从项目设置里修改。这不太理想，但我暂时没有精力改；很欢迎您的贡献。
 
-### 裁剪导出模板
+</details>
+
+<details>
+<summary><strong>裁剪导出模板</strong></summary>
 
 这一部分需要您事先配好 Godot 的编译环境。插件不会帮您安装 Python、SCons、编译器或平台 SDK。请先看[Godot 官方编译文档](https://docs.godotengine.org/zh-cn/stable/contributing/development/compiling/index.html)。
 
@@ -51,7 +55,10 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 
 编译完成后，在 Godot 的导出预设里把生成的可执行文件设为 custom template。build profile 会随着项目内容变化。正式发布前最好重新生成并重新编译一次；如果 SCons 缓存还在，通常不会重新编译全部文件。
 
-## 案例
+</details>
+
+<details>
+<summary><strong>案例</strong></summary>
 
 [Purge Protocol](https://etheremia.itch.io/purge-protocol) 是一个 game jam作品。开发时为了试验方案，我们往项目里放了很多最后没有用到的 3D 模型。使用这个插件后，Windows 成品从约 2 GB 缩小到 91 MB。
 
@@ -59,9 +66,12 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 
 我还在一个未公开的商业项目里使用这个插件。
 
+</details>
+
 ## 细节
 
-### 它怎么判断文件是否可达
+<details>
+<summary><strong>它怎么判断文件是否可达</strong></summary>
 
 分析从主场景、autoload、`project.godot` 中的资源路径，以及您手动配置的根开始，然后继续追踪：
 
@@ -73,6 +83,8 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 - 内置扩展识别的 asset registry 成员和 TileSet source。
 
 目录不会因为在脚本中出现就自动展开。分析器不知道运行时究竟会从目录里取什么，所以只会报警；要保留整个目录，请明确加入白名单。
+
+</details>
 
 ### 配置
 
@@ -97,7 +109,8 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 | `build_extra_modules` | 自定义模板中手动补充的 Godot 模块 |
 | `build_exclude_modules` | 自定义模板中手动排除的 Godot 模块 |
 
-### 导出时具体做什么
+<details>
+<summary><strong>导出时具体做什么</strong></summary>
 
 每次导出前，插件默认重新运行分析，然后：
 
@@ -107,7 +120,10 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 - 如果自定义 build profile 已经编译掉 navigation，则同步关闭导出场景里未使用的 TileMap navigation；
 - 写出 `tools/export_prune_log.json` 供检查。
 
-### 自定义导出模板的判断
+</details>
+
+<details>
+<summary><strong>自定义导出模板的判断</strong></summary>
 
 `build_profile_gen.gd` 会综合报告中的引擎类、已用资源的内部类型、GDScript 中的引擎类标识符、项目设置中的对象，以及 API 返回类型/属性类型的闭包，生成 `tools/engine.build`。
 
@@ -115,9 +131,14 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 
 自定义模板必须实际测试。生成 PCK 后，用新模板运行它并检查 stderr。项目增加资源或功能后，旧的 build profile 可能已经过期；导出插件会检查一部分已知冲突，但不能替代完整的冒烟测试。
 
-### 扩展
+</details>
+
+<details>
+<summary><strong>扩展</strong></summary>
 
 项目有特殊资源规则时，可以在 `extensions` 中加入脚本。扩展可以接管某类文件的依赖提取、补充可达文件、解释 unused 原因，或在导出阶段定制资源和场景，也可以读取自己定义的配置项；例如上面的 `tileset_tree_shake_dirs` 和 `tileset_tree_shake_keep` 就属于内置 `tileset_tree_shake` 扩展。接口与内置例子位于 `addons/export_pipeline/analyzer/ext/`。
+
+</details>
 
 ## 许可证
 

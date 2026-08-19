@@ -23,7 +23,8 @@ Development and testing use Godot 4.7.
 
 Download the repository, copy `addons/export_pipeline/` to the same location in your project, then enable **Export Pipeline** under **Project > Project Settings > Plugins**.
 
-### Pruning the PCK
+<details>
+<summary><strong>Pruning the PCK</strong></summary>
 
 Export as usual, with the preset's resource filter set to **Export all resources**. The plugin runs its analysis during export and leaves unreachable files out of the final PCK.
 
@@ -36,7 +37,10 @@ The first run creates `tools/export_analyzer.json`. I recommend committing this 
 
 `res://tools/` is still hard-coded and cannot be changed in Project Settings. This is not ideal, but I do not have the time to change it right now; contributions are very welcome.
 
-### Trimming the export template
+</details>
+
+<details>
+<summary><strong>Trimming the export template</strong></summary>
 
 You need a working Godot build environment before using this part. The plugin does not install Python, SCons, a compiler, or platform SDKs. Start with the [official Godot compilation documentation](https://docs.godotengine.org/en/stable/contributing/development/compiling/index.html).
 
@@ -53,7 +57,10 @@ This writes `tools/engine.build` and prints a SCons command for the host OS: Win
 
 After compiling, select the resulting executable as the custom template in the Godot export preset. The build profile can change as the project changes, so regenerate and rebuild it before a final release. With the SCons cache intact, this normally does not mean recompiling everything.
 
-## Examples
+</details>
+
+<details>
+<summary><strong>Examples</strong></summary>
 
 [Purge Protocol](https://etheremia.itch.io/purge-protocol) was made for a game jam. We put many experimental 3D models into the project while trying ideas, then left a lot of them unused. Export Pipeline reduced the Windows build from about 2 GB to 91 MB.
 
@@ -61,9 +68,12 @@ This is an unusually strong case. A project that plans its asset layout and clea
 
 I also use the plugin in an unreleased commercial project.
 
+</details>
+
 ## Details
 
-### How reachability is decided
+<details>
+<summary><strong>How reachability is decided</strong></summary>
 
 Analysis starts from the main scene, autoloads, resource paths in `project.godot`, and any roots added in the configuration. It then follows:
 
@@ -75,6 +85,8 @@ Analysis starts from the main scene, autoloads, resource paths in `project.godot
 - asset-registry members and TileSet sources handled by built-in extensions.
 
 A directory mentioned in code is not expanded automatically. The analyzer cannot know which file will be selected from it at runtime, so it warns instead. Add the directory to the whitelist when all or part of it must ship.
+
+</details>
 
 ### Configuration
 
@@ -99,7 +111,8 @@ Configuration lives in `tools/export_analyzer.json`. The commonly used keys are:
 | `build_extra_modules` | Godot modules to add manually to a custom template |
 | `build_exclude_modules` | Godot modules to exclude manually |
 
-### What happens during export
+<details>
+<summary><strong>What happens during export</strong></summary>
 
 By default the plugin analyzes again before every export, then:
 
@@ -109,7 +122,10 @@ By default the plugin analyzes again before every export, then:
 - disables unused TileMap navigation in exported scenes when navigation has already been compiled out of the custom build profile;
 - writes `tools/export_prune_log.json` for inspection.
 
-### How the custom export template is derived
+</details>
+
+<details>
+<summary><strong>How the custom export template is derived</strong></summary>
 
 `build_profile_gen.gd` combines engine classes found in the report, types stored inside used resources, engine identifiers in GDScript, objects in project settings, and the closure of API return/property types. It writes the result to `tools/engine.build`.
 
@@ -117,9 +133,14 @@ By default the plugin analyzes again before every export, then:
 
 Always test a custom template. Export the PCK, run it with the new template, and check stderr. A profile can become stale after the project gains new content or features. The export plugin catches some known conflicts, but that check is not a replacement for a smoke test.
 
-### Extensions
+</details>
+
+<details>
+<summary><strong>Extensions</strong></summary>
 
 Projects with special resource rules can add scripts to `extensions`. An extension can take over dependency extraction for a file type, add reachable files, explain why a file is unused, customize resources and scenes during export, and read configuration keys of its own. For example, `tileset_tree_shake_dirs` and `tileset_tree_shake_keep` belong to the built-in `tileset_tree_shake` extension. The interfaces and built-in examples live in `addons/export_pipeline/analyzer/ext/`.
+
+</details>
 
 ## License
 
