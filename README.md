@@ -1,10 +1,12 @@
-# Export Pipeline
+# Godot Export Pipeline
 
 <p align="center"><img src="icon.svg" alt="Export Pipeline icon" width="128"></p>
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 This is a Godot export tool I use internally. I have used it in several public and private projects; see the examples below. AI did a substantial amount of work on this plugin.
+
+To some extent, this plugin addresses [this proposal](https://github.com/godotengine/godot-proposals/issues/11331).
 
 What it does:
 

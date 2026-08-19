@@ -1,10 +1,12 @@
-# Export Pipeline
+# Godot Export Pipeline
 
 <p align="center"><img src="icon.svg" alt="Export Pipeline icon" width="128"></p>
 
 [简体中文](README.zh-CN.md) | [English](README.md)
 
 这是一个我在内部使用的 Godot 导出工具；我在多个公开和未公开的项目里用过它，案例见下文。AI 在这个插件的开发中做了很多工作。
+
+这某种程度上解决了[这个proposal](https://github.com/godotengine/godot-proposals/issues/11331)
 
 它做的：
 
