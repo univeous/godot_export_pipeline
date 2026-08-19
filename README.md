@@ -17,6 +17,8 @@ The two parts are independent. You can reduce the PCK size without compiling a G
 
 For most games, a trimmed export template can be smaller than 30 MB. This refers to the template itself, not the PCK.
 
+How much PCK pruning helps depends on the project. If you planned ahead and every asset in the project is actually used, it will make very little difference (although it can still remove development-only plugins and other files that should not ship). If you like keeping various assets and experiments in the project, PCK pruning can be very useful.
+
 The plugin only works during analysis and export. It does not rewrite scenes, resources, or scripts in your project. It writes export configuration, reports, and logs under `res://tools/`. If an exported project does not run or has missing resources after following the steps below, please file an [issue](https://github.com/univeous/godot_export_pipeline/issues).
 
 Only GDScript projects are supported at the moment. I have not implemented C# source dependency analysis or tested this on a C# project, so I do not know what will happen.
