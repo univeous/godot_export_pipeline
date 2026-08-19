@@ -1,6 +1,6 @@
 # Export Pipeline
 
-<img src="icon.svg" alt="Export Pipeline icon" width="128">
+<p align="center"><img src="icon.svg" alt="Export Pipeline icon" width="128"></p>
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -28,7 +28,7 @@ Download the repository, copy `addons/export_pipeline/` to the same location in 
 Export as usual, with the preset's resource filter set to **Export all resources**. The plugin runs its analysis during export and leaves unreachable files out of the final PCK.
 
 - If the project does not load resources through paths assembled at runtime, this is usually all you need.
-- If it does, the analyzer reports `load()` / `ResourceLoader.load()` calls it cannot resolve. Add the relevant file or directory to `dynamic_load_whitelist` in `tools/export_analyzer.json`, then analyze again.
+- If it does, the analyzer reports `load()` / `ResourceLoader.load()` calls it cannot resolve. Add the relevant file or directory to `dynamic_load_whitelist` in `tools/export_analyzer.json`, then analyze again. (This is not really ideal: every resource on the whitelist is exported even if it is not actually used. I have another plugin that handles this problem better, but it is not ready to be made public yet.)
 - To disable pruning for one preset, add `no_prune` to its custom features.
 - Run **Project > Tools > Run Export Analysis** to analyze manually. The HTML report opens automatically and explains what is kept, what is skipped, and why.
 

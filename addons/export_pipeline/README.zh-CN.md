@@ -1,6 +1,6 @@
 # Export Pipeline
 
-<img src="icon.svg" alt="Export Pipeline icon" width="128">
+<p align="center"><img src="icon.svg" alt="Export Pipeline icon" width="128"></p>
 
 [简体中文](README.zh-CN.md) | [English](README.md)
 
@@ -26,7 +26,7 @@
 像以前一样导出，只需把导出预设的资源过滤设为**导出所有资源**。插件会在导出时运行分析，并从最终 PCK 中跳过不可达文件。
 
 - 如果项目没有通过拼接字符串等方式动态加载资源，通常到这里就够了。
-- 如果有，分析器会把无法判断的 `load()` / `ResourceLoader.load()` 写进警告和报告。把对应文件或目录加入`tools/export_analyzer.json` 的 `dynamic_load_whitelist`，重新分析即可。
+- 如果有，分析器会把无法判断的 `load()` / `ResourceLoader.load()` 写进警告和报告。把对应文件或目录加入`tools/export_analyzer.json` 的 `dynamic_load_whitelist`，重新分析即可。（这个方法其实并不是特别理想；白名单中的所有资源都会被导出，即使没有被实际用到；我有另外的一个插件可以较好地解决这个问题，不过我还没有准备好公开它）
 - 如果某个导出预设不想裁剪，在它的 custom features 中加入 `no_prune`。
 - 可以从 **项目 > 工具 > Run Export Analysis** 手动分析。分析完成后会自动打开html报告，里面会说明哪些文件保留、哪些文件跳过，以及判断依据。
 
