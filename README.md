@@ -70,11 +70,12 @@ Run **Project > Tools > Generate Build Profile**, or execute:
 godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 ```
 
-This writes `tools/engine.build` and prints a SCons command. The command uses
-Windows as the example target. For another platform, replace
-`platform=windows` with `linuxbsd`, `macos`, `web`, `android`, or `ios`, then
-adjust `arch`, output names, and toolchain options according to that platform's
-Godot build guide.
+This writes `tools/engine.build` and prints a SCons command for the host OS:
+Windows, macOS, and Linux/BSD map to `windows`, `macos`, and `linuxbsd`.
+For a cross-build, set `build_platform` and (if needed) `build_arch` in
+`tools/export_analyzer.json`. Other accepted platforms are `web`, `android`,
+and `ios`. The target toolchain is still your responsibility; follow that
+platform's Godot build guide.
 
 After compiling, select the resulting executable as the custom template in the
 Godot export preset. The build profile can change as the project changes, so
@@ -137,6 +138,8 @@ Configuration lives in `tools/export_analyzer.json`. The commonly used keys are:
 | `prune_on_export` | Enable PCK pruning during export |
 | `prune_refresh_analysis` | Re-run analysis before every export |
 | `build_text_server` | Use the `adv` or smaller `fb` text server in a custom template |
+| `build_platform` | SCons target platform; `auto` follows the host OS |
+| `build_arch` | Target architecture; `auto` follows the running Godot editor |
 | `build_extra_modules` | Godot modules to add manually to a custom template |
 | `build_exclude_modules` | Godot modules to exclude manually |
 

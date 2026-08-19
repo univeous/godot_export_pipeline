@@ -121,6 +121,41 @@ var _subsystem_evidence := {
 	"advanced_gui": PackedStringArray(),
 }
 
+const SCONS_PLATFORMS := ["windows", "macos", "linuxbsd", "web", "android", "ios"]
+
+
+func _host_scons_platform() -> String:
+	match OS.get_name():
+		"Windows":
+			return "windows"
+		"macOS":
+			return "macos"
+		"Linux", "FreeBSD", "NetBSD", "OpenBSD", "BSD":
+			return "linuxbsd"
+		"Web":
+			return "web"
+		"Android":
+			return "android"
+		"iOS":
+			return "ios"
+		_:
+			return "linuxbsd"
+
+
+func _build_platform(config: Dictionary) -> String:
+	var requested := String(config.get("build_platform", "auto")).strip_edges().to_lower()
+	if requested in ["", "auto", "host"]:
+		return _host_scons_platform()
+	if requested == "linux":
+		requested = "linuxbsd"
+	elif requested in ["osx", "darwin"]:
+		requested = "macos"
+	if requested not in SCONS_PLATFORMS:
+		var fallback := _host_scons_platform()
+		print("[build_profile_gen] WARNING: unknown build_platform='%s'; using host platform '%s'." % [requested, fallback])
+		return fallback
+	return requested
+
 
 func _note(subsystem: String, evidence: String) -> void:
 	if not evidence in _subsystem_evidence[subsystem]:
@@ -307,6 +342,9 @@ func _init() -> void:
 	for mod in module_names:
 		module_flags.append("module_%s_enabled=yes" % mod)
 
+	var platform := _build_platform(config)
+	var is_windows_target := platform == "windows"
+
 	# Build options are derived from project state, never assumed:
 	#  - d3d12 stays when the project's RD driver is d3d12 (needs the D3D12
 	#    SDK deps: misc/scripts/install_d3d12_sdk_windows.py);
@@ -316,8 +354,8 @@ func _init() -> void:
 	var extra_opts := PackedStringArray()
 	var rd_driver := String(ProjectSettings.get_setting("rendering/rendering_device/driver.windows",
 		ProjectSettings.get_setting("rendering/rendering_device/driver", "vulkan")))
-	var needs_d3d12 := rendering_method != "gl_compatibility" and rd_driver == "d3d12"
-	if not needs_d3d12:
+	var needs_d3d12 := is_windows_target and rendering_method != "gl_compatibility" and rd_driver == "d3d12"
+	if is_windows_target and not needs_d3d12:
 		extra_opts.append("d3d12=no")
 	# A gl_compatibility-only project never touches the RenderingDevice
 	# backends, so the whole Vulkan RD can be compiled out — derivable from
@@ -326,9 +364,11 @@ func _init() -> void:
 		extra_opts.append("vulkan=no")
 	if not (_keep.has("ZIPReader") or _keep.has("ZIPPacker")):
 		extra_opts.append("minizip=no")
-	# Architecture of the running editor — the sensible default for a
-	# desktop template built on this machine, not a hardcoded x86_64.
-	var arch := Engine.get_architecture_name()
+	# Host architecture is the default. Cross-builds can override it alongside
+	# build_platform in tools/export_analyzer.json.
+	var arch := String(config.get("build_arch", "auto")).strip_edges()
+	if arch in ["", "auto", "host"]:
+		arch = Engine.get_architecture_name()
 	# Prefer `uvx scons` (uv fetches an up-to-date SCons into an ephemeral
 	# env — Godot needs >= 4.4, system installs are often older), fall back
 	# to a bare scons on PATH, and print plain scons with an install hint
@@ -342,22 +382,24 @@ func _init() -> void:
 
 	# WinRT support needs Windows SDK >= 10.0.22621 — a detectable fact of
 	# this machine, so probe for it instead of assuming either way.
-	var winrt_ok := false
-	var sdk_dir := DirAccess.open("C:/Program Files (x86)/Windows Kits/10/Include")
-	if sdk_dir:
-		for v in sdk_dir.get_directories():
-			var parts := v.split(".")
-			if parts.size() >= 3 and int(parts[2]) >= 22621:
-				winrt_ok = true
-				break
-	if not winrt_ok:
-		extra_opts.append("winrt=no")
+	var winrt_ok := true
+	if is_windows_target:
+		winrt_ok = false
+		var sdk_dir := DirAccess.open("C:/Program Files (x86)/Windows Kits/10/Include")
+		if sdk_dir:
+			for v in sdk_dir.get_directories():
+				var parts := v.split(".")
+				if parts.size() >= 3 and int(parts[2]) >= 22621:
+					winrt_ok = true
+					break
+		if not winrt_ok:
+			extra_opts.append("winrt=no")
 	# Environment workarounds this machine needs (e.g. accesskit=no when the
 	# AccessKit deps are not installed in the source checkout) — declared
 	# explicitly in the config, never assumed.
 	for arg in config.get("build_extra_scons_args", []):
 		extra_opts.append(String(arg))
-	var scons_cmd := ("%s platform=windows target=template_release arch=%s optimize=size_extra lto=full debug_symbols=no" % [scons_runner, arch]
+	var scons_cmd := ("%s platform=%s target=template_release arch=%s optimize=size_extra lto=full debug_symbols=no" % [scons_runner, platform, arch]
 		+ (" " + " ".join(extra_opts) if not extra_opts.is_empty() else "")
 		+ " modules_enabled_by_default=no %s" % " ".join(module_flags)
 		+ " build_profile=%s" % ProjectSettings.globalize_path(PROFILE_PATH))
@@ -367,12 +409,14 @@ func _init() -> void:
 	print("[build_profile_gen] modules needed: %s" % ", ".join(module_names))
 	print("[build_profile_gen] prerequisites: matching Godot source, Python, SCons >= 4.4 (or uvx scons), a compiler, and the target platform SDK/toolchain:")
 	print("[build_profile_gen]   https://docs.godotengine.org/en/stable/contributing/development/compiling/index.html")
-	print("[build_profile_gen] compile from a Godot source checkout matching %s.%s.%s:" % [vinfo["major"], vinfo["minor"], vinfo["status"]])
+	print("[build_profile_gen] compile for %s/%s from a Godot source checkout matching %s.%s.%s:" % [platform, arch, vinfo["major"], vinfo["minor"], vinfo["status"]])
 	print("[build_profile_gen]   %s" % scons_cmd)
-	print("[build_profile_gen] the command above targets Windows. For another target, replace platform=windows (for example with linuxbsd, macos, web, android, or ios) and adjust arch, output names, and toolchain options according to that platform's Godot compilation guide.")
 	print("[build_profile_gen] then install it for use as an export preset custom template (the profile sidecar is how freshness is verified — content, not timestamps):")
-	print("[build_profile_gen]   copy bin\\godot.windows.template_release.%s.exe \"%s\\windows_release_%s.exe\"" % [arch, install_dir.replace("/", "\\"), arch])
-	print("[build_profile_gen]   copy \"%s\" \"%s\\profile_used.build\"" % [ProjectSettings.globalize_path(PROFILE_PATH).replace("/", "\\"), install_dir.replace("/", "\\")])
+	if is_windows_target:
+		print("[build_profile_gen]   copy bin\\godot.windows.template_release.%s.exe \"%s\\windows_release_%s.exe\"" % [arch, install_dir.replace("/", "\\"), arch])
+		print("[build_profile_gen]   copy \"%s\" \"%s\\profile_used.build\"" % [ProjectSettings.globalize_path(PROFILE_PATH).replace("/", "\\"), install_dir.replace("/", "\\")])
+	else:
+		print("[build_profile_gen]   install the %s template produced under bin/ according to the platform guide, then copy %s to %s/profile_used.build" % [platform, ProjectSettings.globalize_path(PROFILE_PATH), install_dir])
 	print("[build_profile_gen] select that executable in the preset's custom_template/release option, export with Godot, then smoke-test the produced build.")
 	if missing_runner:
 		print("[build_profile_gen] NOTE: neither `uv` nor `scons` was found on PATH — install uv (https://docs.astral.sh/uv/, e.g. `winget install astral-sh.uv`) and the command becomes `uvx scons ...`, or install SCons >= 4.4 yourself.")
@@ -380,7 +424,7 @@ func _init() -> void:
 		print("[build_profile_gen] NOTE: d3d12 is kept (project renders through the d3d12 driver) — its SDK deps must be installed: misc/scripts/install_d3d12_sdk_windows.py")
 	if rendering_method == "gl_compatibility":
 		print("[build_profile_gen] NOTE: vulkan=no added — the project renders with gl_compatibility only, so the Vulkan RenderingDevice backend is compiled out.")
-	if not winrt_ok:
+	if is_windows_target and not winrt_ok:
 		print("[build_profile_gen] NOTE: winrt=no added — this machine's Windows SDK is older than 10.0.22621.")
 	print("[build_profile_gen] NOTE: if scons then asks for the AccessKit deps, either run misc/scripts/install_accesskit.py in the source checkout, or declare `\"build_extra_scons_args\": [\"accesskit=no\"]` in tools/export_analyzer.json (accesskit=no removes screen-reader support — an accessibility trade-off).")
 	quit()

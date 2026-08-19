@@ -61,10 +61,11 @@ Godot 自带的 `--export-debug` / `--export-release` 即可。
 godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 ```
 
-它会写出 `tools/engine.build`，并打印一条 SCons 命令。当前打印的命令以
-Windows 为例；编译其他平台时，把 `platform=windows` 换成 `linuxbsd`、
-`macos`、`web`、`android` 或 `ios`，并按对应平台的官方文档调整 `arch`、
-文件名和工具链参数。
+它会写出 `tools/engine.build`，并按本机 OS 打印 SCons 命令：Windows、
+macOS、Linux/BSD 分别对应 `windows`、`macos`、`linuxbsd`。需要交叉编译时，
+在 `tools/export_analyzer.json` 里设置 `build_platform`，必要时再设置
+`build_arch`。另外也接受 `web`、`android` 和 `ios`。目标平台的工具链仍需
+您自己准备，并按对应平台的官方编译文档配置。
 
 编译完成后，在 Godot 的导出预设里把生成的可执行文件设为 custom template。
 build profile 会随着项目内容变化。正式发布前最好重新生成并重新编译一次；
@@ -121,6 +122,8 @@ build profile 会随着项目内容变化。正式发布前最好重新生成并
 | `prune_on_export` | 是否在导出时启用 PCK 裁剪 |
 | `prune_refresh_analysis` | 每次导出前是否重新分析 |
 | `build_text_server` | 自定义模板使用 `adv` 还是较小的 `fb` text server |
+| `build_platform` | SCons 目标平台；`auto` 跟随本机 OS |
+| `build_arch` | 目标架构；`auto` 跟随当前 Godot 编辑器 |
 | `build_extra_modules` | 自定义模板中手动补充的 Godot 模块 |
 | `build_exclude_modules` | 自定义模板中手动排除的 Godot 模块 |
 
