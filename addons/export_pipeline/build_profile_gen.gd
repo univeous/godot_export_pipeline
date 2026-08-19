@@ -235,7 +235,7 @@ func _init() -> void:
 		"disabled_classes": disabled,
 	}
 	# Write-if-changed: the profile's mtime is the freshness reference for
-	# self-built templates (export_pruner / release.ps1 compare against it),
+	# self-built templates (the export pruner compares against it),
 	# so an unchanged regeneration must not bump it.
 	var content := JSON.stringify(profile, "\t") + "\n"
 	if FileAccess.get_file_as_string(PROFILE_PATH) != content:
@@ -365,16 +365,15 @@ func _init() -> void:
 	var vinfo := Engine.get_version_info()
 	print("[build_profile_gen] kept %d classes, disabled %d -> %s" % [_keep.size(), disabled.size(), PROFILE_PATH])
 	print("[build_profile_gen] modules needed: %s" % ", ".join(module_names))
+	print("[build_profile_gen] prerequisites: matching Godot source, Python, SCons >= 4.4 (or uvx scons), a compiler, and the target platform SDK/toolchain:")
+	print("[build_profile_gen]   https://docs.godotengine.org/en/stable/contributing/development/compiling/index.html")
 	print("[build_profile_gen] compile from a Godot source checkout matching %s.%s.%s:" % [vinfo["major"], vinfo["minor"], vinfo["status"]])
 	print("[build_profile_gen]   %s" % scons_cmd)
-	print("[build_profile_gen] then install it so exports and release.ps1 pick it up (the profile sidecar is how freshness is verified — content, not timestamps):")
+	print("[build_profile_gen] the command above targets Windows. For another target, replace platform=windows (for example with linuxbsd, macos, web, android, or ios) and adjust arch, output names, and toolchain options according to that platform's Godot compilation guide.")
+	print("[build_profile_gen] then install it for use as an export preset custom template (the profile sidecar is how freshness is verified — content, not timestamps):")
 	print("[build_profile_gen]   copy bin\\godot.windows.template_release.%s.exe \"%s\\windows_release_%s.exe\"" % [arch, install_dir.replace("/", "\\"), arch])
 	print("[build_profile_gen]   copy \"%s\" \"%s\\profile_used.build\"" % [ProjectSettings.globalize_path(PROFILE_PATH).replace("/", "\\"), install_dir.replace("/", "\\")])
-	print("[build_profile_gen] and verify + ship in one command:")
-	print("[build_profile_gen]   pwsh \"%s\" -GodotExe \"%s\"" % [
-		ProjectSettings.globalize_path("res://addons/export_pipeline/release.ps1").replace("/", "\\"),
-		OS.get_executable_path().replace("/", "\\"),
-	])
+	print("[build_profile_gen] select that executable in the preset's custom_template/release option, export with Godot, then smoke-test the produced build.")
 	if missing_runner:
 		print("[build_profile_gen] NOTE: neither `uv` nor `scons` was found on PATH — install uv (https://docs.astral.sh/uv/, e.g. `winget install astral-sh.uv`) and the command becomes `uvx scons ...`, or install SCons >= 4.4 yourself.")
 	if needs_d3d12:

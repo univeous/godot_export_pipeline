@@ -1,2 +1,8 @@
 # Normalize all text files to LF (Godot convention).
 * text=auto eol=lf
+
+# Asset Library archives only need the installable addon. Documentation and
+# license copies live inside the addon directory as well.
+/**        export-ignore
+/addons    !export-ignore
+/addons/** !export-ignore

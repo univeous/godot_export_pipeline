@@ -1,10 +1,9 @@
 ## Patches one export preset's custom_template/{debug,release} field in
 ## export_presets.cfg, via Godot's own ConfigFile parser so the file's other
 ## sections (including multi-line ssh_remote_deploy script values) round-trip
-## byte-for-byte correct. Used by release.ps1 to point a preset at the
-## self-built template for a single --export-debug/--export-release run;
-## release.ps1 restores the original file from its own backup afterward —
-## this script never restores anything itself.
+## byte-for-byte correct. Release automation can use it to point a preset at
+## a self-built template for one --export-debug/--export-release run. This
+## script never backs up or restores the preset; the caller owns that lifecycle.
 ##
 ## Usage:
 ##   godot --headless --path . -s addons/export_pipeline/set_preset_template.gd -- <preset name> <true|false is_debug> <absolute template path>

@@ -395,8 +395,7 @@ func _autoloads_to_drop(config: Dictionary) -> Array[String]:
 ## timestamps, which copies, touches and identical rewrites all corrupt.
 ## Export plugins cannot switch the preset's template mid-export (no
 ## scripting API for presets), so this reports the situation instead:
-## the preset's custom_template must point at the template once, and
-## release.ps1 auto-discovers it for smoke runs and artifact assembly.
+## the preset's custom_template must point at the template before export.
 func _report_template_status() -> void:
 	if not FileAccess.file_exists(BUILD_PROFILE_PATH):
 		return
@@ -423,7 +422,7 @@ func _report_template_status() -> void:
 	elif FileAccess.get_file_as_string(sidecar) != FileAccess.get_file_as_string(BUILD_PROFILE_PATH):
 		push_warning("[export_pruner] self-built template tools/templates/%s was compiled from an OUTDATED profile — recompile it, or the exported game may miss engine classes." % newest)
 	else:
-		print("[export_pruner] up-to-date self-built template: tools/templates/%s (make sure the preset's custom_template points at it, or ship via release.ps1)." % newest)
+		print("[export_pruner] up-to-date self-built template: tools/templates/%s (make sure the preset's custom_template points at it, then smoke-test the exported build)." % newest)
 
 
 ## Settings owned by addons excluded via editor-only prefixes. Best-effort

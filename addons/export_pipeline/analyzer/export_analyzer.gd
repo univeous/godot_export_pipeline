@@ -142,6 +142,11 @@ func _compile_regexes() -> void:
 
 func _load_config() -> void:
 	if not FileAccess.file_exists(CONFIG_PATH):
+		var tools_dir := ProjectSettings.globalize_path(CONFIG_PATH.get_base_dir())
+		var mkdir_err := DirAccess.make_dir_recursive_absolute(tools_dir)
+		if mkdir_err != OK:
+			push_error("[export_analyzer] cannot create %s: %d" % [tools_dir, mkdir_err])
+			return
 		_config = {
 			"_comment": "extra_roots and dynamic_load_whitelist accept res:// files or directories; both are traversed as reachability roots. editor_only lists res:// prefixes that are never runtime-reachable, even if referenced. ignored_settings extends the built-in list of editor-only project.godot settings; ignored_autoloads lists autoload names that will not ship (dev tools). text_scan_extensions are content DSL files scanned for paths/classes/registry members. Scripts containing any registry_markers string (or listed in registry_scripts) are asset registries whose paths are gated by member usage; registry_patterns maps a registry class to one or more asset path templates for wrapper-style members, e.g. {\"Character\": \"res://game/scenes/portraits/{member}.tscn\"}.",
 			"extra_roots": [],
@@ -155,6 +160,9 @@ func _load_config() -> void:
 			"registry_patterns": {},
 		}
 		var f := FileAccess.open(CONFIG_PATH, FileAccess.WRITE)
+		if f == null:
+			push_error("[export_analyzer] cannot write %s: %d" % [CONFIG_PATH, FileAccess.get_open_error()])
+			return
 		f.store_string(JSON.stringify(_config, "\t") + "\n")
 		f.close()
 		print("[export_analyzer] created default config at ", CONFIG_PATH)

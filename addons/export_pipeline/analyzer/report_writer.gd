@@ -12,6 +12,11 @@ const HTML_TEMPLATE := "res://addons/export_pipeline/analyzer/report_template.ht
 
 
 static func write_all(data: Dictionary, ext_md: Dictionary) -> void:
+	var report_dir := ProjectSettings.globalize_path(REPORT_MD.get_base_dir())
+	var mkdir_err := DirAccess.make_dir_recursive_absolute(report_dir)
+	if mkdir_err != OK:
+		push_error("[report_writer] cannot create %s: %d" % [report_dir, mkdir_err])
+		return
 	_write_file(REPORT_JSON, JSON.stringify(data, "\t") + "\n")
 	_write_file(REPORT_MD, "\n".join(_markdown(data, ext_md)))
 
@@ -26,6 +31,9 @@ static func write_all(data: Dictionary, ext_md: Dictionary) -> void:
 
 static func _write_file(path: String, content: String) -> void:
 	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		push_error("[report_writer] cannot write %s: %d" % [path, FileAccess.get_open_error()])
+		return
 	f.store_string(content)
 	f.close()
 
