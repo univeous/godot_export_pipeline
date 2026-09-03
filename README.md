@@ -81,7 +81,7 @@ I also use the plugin in an unreleased commercial project.
 <details>
 <summary><strong>How reachability is decided</strong></summary>
 
-Analysis starts from the main scene, autoloads, resource paths in `project.godot`, and any roots added in the configuration. It then follows:
+Analysis starts from the main scene, autoloads, resource paths in `project.godot` (including settings whose engine default already names a file, such as `audio/buses/default_bus_layout` → `res://default_bus_layout.tres`, which Godot never writes to `project.godot` while it stays at the default), and any roots added in the configuration. It then follows:
 
 - `ext_resource` and resource paths in scenes, resources, and shaders;
 - literal `preload()`, `load()`, and `extends` paths in GDScript, plus `class_name` and engine-class references;

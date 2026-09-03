@@ -79,7 +79,7 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 <details>
 <summary><strong>它怎么判断文件是否可达</strong></summary>
 
-分析从主场景、autoload、`project.godot` 中的资源路径，以及您手动配置的根开始，然后继续追踪：
+分析从主场景、autoload、`project.godot` 中的资源路径（含引擎默认值本身就指向文件的设置，如 `audio/buses/default_bus_layout` → `res://default_bus_layout.tres`——保持默认时 Godot 不会把它写进 `project.godot`），以及您手动配置的根开始，然后继续追踪：
 
 - 场景、资源和 shader 中的 `ext_resource` 与资源路径；
 - GDScript 中字面量形式的 `preload()`、`load()`、`extends`、`class_name` 和引擎类引用；

@@ -53,6 +53,17 @@ const LOCALE_SUFFIXED_SETTINGS := [
 	"internationalization/locale/translation_remaps",
 ]
 
+## project.godot settings whose ENGINE DEFAULT already names a resource.
+## Godot only writes a setting to project.godot when it differs from the
+## default, so a project that keeps the stock value never has a line for it
+## — yet the engine still loads the file at runtime. The text scan above
+## cannot see these; they are seeded from the effective ProjectSettings
+## value instead. Value = the engine default, used when the running Godot
+## does not register the setting (older/trimmed builds).
+const DEFAULT_RESOURCE_SETTINGS := {
+	"audio/buses/default_bus_layout": "res://default_bus_layout.tres",
+}
+
 var _config := {}
 var _all_files := {}           # path -> size (resource-extension files only)
 var _non_resource_files := {}  # path -> size
@@ -268,6 +279,7 @@ func _seed_roots() -> void:
 	var re_prop := RegEx.create_from_string("^([A-Za-z_][\\w/.]*)=")
 	var section2 := ""
 	var prop := ""
+	var written_settings := {}  # settings that have a line in project.godot
 	for line in FileAccess.get_file_as_string("res://project.godot").split("\n"):
 		var stripped := line.strip_edges()
 		if stripped.begins_with("[") and stripped.ends_with("]"):
@@ -276,6 +288,7 @@ func _seed_roots() -> void:
 		var pm := re_prop.search(stripped)
 		if pm:
 			prop = section2.path_join(pm.get_string(1)) if not section2.is_empty() else pm.get_string(1)
+			written_settings[prop] = true
 		if prop in EDITOR_ONLY_SETTINGS or prop in ignored:
 			continue
 		if prop.begins_with("autoload/"):
@@ -293,6 +306,21 @@ func _seed_roots() -> void:
 			if locale_suffixed:
 				ref = _strip_locale_suffix(ref)
 			_mark_used(ref, "<project.godot %s>" % prop)
+
+	# Settings that are absent from project.godot because they sit at the
+	# engine default, but whose default IS a resource path (bus layout).
+	for setting in DEFAULT_RESOURCE_SETTINGS:
+		if written_settings.has(setting):
+			continue # explicit line: the text scan above already handled it
+		if setting in EDITOR_ONLY_SETTINGS or setting in ignored:
+			continue
+		var value := String(ProjectSettings.get_setting(setting, DEFAULT_RESOURCE_SETTINGS[setting]))
+		if value.is_empty():
+			continue
+		var target := _resolve_res_ref(value)
+		if not FileAccess.file_exists(target):
+			continue # stock default with no such file: nothing to ship, no warning
+		_mark_used(value, "<project.godot %s (engine default)>" % setting)
 
 	for key in ["extra_roots", "dynamic_load_whitelist"]:
 		for root in _config.get(key, []):
