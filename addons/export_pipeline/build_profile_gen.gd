@@ -359,13 +359,34 @@ func _init() -> void:
 	var rd_driver := String(ProjectSettings.get_setting("rendering/rendering_device/driver.windows",
 		ProjectSettings.get_setting("rendering/rendering_device/driver", "vulkan")))
 	var needs_d3d12 := is_windows_target and rendering_method != "gl_compatibility" and rd_driver == "d3d12"
-	if is_windows_target and not needs_d3d12:
+	# Godot 4.8+ (godotengine/godot#103100) can compile out the RenderingDevice
+	# stack per renderer: rendering_device=no drops RD and both RD renderers
+	# (SConstruct then forces vulkan/metal/d3d12 off itself), while
+	# forward_plus_renderer=no / forward_mobile_renderer=no drop the one RD
+	# renderer the project does not use. Older SConstructs reject unknown
+	# variables, so these are gated on the running engine's version — the
+	# source checkout has to match it anyway (see the prerequisites print).
+	var vinfo := Engine.get_version_info()
+	var has_rd_options: bool = int(vinfo["major"]) > 4 or (int(vinfo["major"]) == 4 and int(vinfo["minor"]) >= 8)
+	var rd_option := ""
+	match rendering_method:
+		"gl_compatibility":
+			rd_option = "rendering_device=no"
+		"mobile":
+			rd_option = "forward_plus_renderer=no"
+		"forward_plus":
+			rd_option = "forward_mobile_renderer=no"
+	var drops_rd := has_rd_options and rd_option == "rendering_device=no"
+	if is_windows_target and not needs_d3d12 and not drops_rd:
 		extra_opts.append("d3d12=no")
 	# A gl_compatibility-only project never touches the RenderingDevice
 	# backends, so the whole Vulkan RD can be compiled out — derivable from
-	# the renderer setting, same as glslang above.
-	if rendering_method == "gl_compatibility":
+	# the renderer setting, same as glslang above. Implied by
+	# rendering_device=no where that option exists.
+	if rendering_method == "gl_compatibility" and not drops_rd:
 		extra_opts.append("vulkan=no")
+	if has_rd_options and not rd_option.is_empty():
+		extra_opts.append(rd_option)
 	if not (_keep.has("ZIPReader") or _keep.has("ZIPPacker")):
 		extra_opts.append("minizip=no")
 	# Host architecture is the default. Cross-builds can override it alongside
@@ -408,7 +429,6 @@ func _init() -> void:
 		+ " modules_enabled_by_default=no %s" % " ".join(module_flags)
 		+ " build_profile=%s" % ProjectSettings.globalize_path(PROFILE_PATH))
 	var install_dir := ProjectSettings.globalize_path("res://tools/templates")
-	var vinfo := Engine.get_version_info()
 	print("[build_profile_gen] kept %d classes, disabled %d -> %s" % [_keep.size(), disabled.size(), PROFILE_PATH])
 	print("[build_profile_gen] modules needed: %s" % ", ".join(module_names))
 	print("[build_profile_gen] prerequisites: matching Godot source, Python, SCons >= 4.4 (or uvx scons), a compiler, and the target platform SDK/toolchain:")
@@ -426,8 +446,15 @@ func _init() -> void:
 		print("[build_profile_gen] NOTE: neither `uv` nor `scons` was found on PATH — install uv (https://docs.astral.sh/uv/, e.g. `winget install astral-sh.uv`) and the command becomes `uvx scons ...`, or install SCons >= 4.4 yourself.")
 	if needs_d3d12:
 		print("[build_profile_gen] NOTE: d3d12 is kept (project renders through the d3d12 driver) — its SDK deps must be installed: misc/scripts/install_d3d12_sdk_windows.py")
-	if rendering_method == "gl_compatibility":
+	if rendering_method == "gl_compatibility" and not drops_rd:
 		print("[build_profile_gen] NOTE: vulkan=no added — the project renders with gl_compatibility only, so the Vulkan RenderingDevice backend is compiled out.")
+	if has_rd_options and not rd_option.is_empty():
+		if drops_rd:
+			print("[build_profile_gen] NOTE: rendering_device=no added — the project renders with gl_compatibility only, so RenderingDevice and both RD renderers are compiled out (SConstruct disables vulkan/metal/d3d12 with it).")
+		else:
+			print("[build_profile_gen] NOTE: %s added — the project renders with %s, so the other RenderingDevice renderer is compiled out." % [rd_option, rendering_method])
+	elif not rd_option.is_empty():
+		print("[build_profile_gen] NOTE: Godot 4.8+ can also compile out unused RenderingDevice renderers (%s); regenerate after upgrading the engine and source." % rd_option)
 	if is_windows_target and not winrt_ok:
 		print("[build_profile_gen] NOTE: winrt=no added — this machine's Windows SDK is older than 10.0.22621.")
 	print("[build_profile_gen] NOTE: if scons then asks for the AccessKit deps, either run misc/scripts/install_accesskit.py in the source checkout, or declare `\"build_extra_scons_args\": [\"accesskit=no\"]` in tools/export_analyzer.json (accesskit=no removes screen-reader support — an accessibility trade-off).")

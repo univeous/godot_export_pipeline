@@ -61,6 +61,8 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 
 This writes `tools/engine.build` and prints a SCons command for the host OS: Windows, macOS, and Linux/BSD map to `windows`, `macos`, and `linuxbsd`. For a cross-build, set `build_platform` and (if needed) `build_arch` in `tools/export_analyzer.json`. Other accepted platforms are `web`, `android`, and `ios`. The target toolchain is still your responsibility; follow that platform's Godot build guide.
 
+The printed command also turns off engine parts the project cannot reach, derived from project settings rather than assumed: the Vulkan/D3D12 backends when the renderer is Compatibility, minizip without ZIP readers, and, on Godot 4.8 or newer, the RenderingDevice renderer the project does not use (`forward_plus_renderer=no`, `forward_mobile_renderer=no`, or `rendering_device=no` for Compatibility-only projects; see godotengine/godot#103100). Those renderer options are only emitted when the running editor is 4.8+, because older SCons builds reject them.
+
 After compiling, select the resulting executable as the custom template in the Godot export preset. The build profile can change as the project changes, so regenerate and rebuild it before a final release. With the SCons cache intact, this normally does not mean recompiling everything.
 
 </details>

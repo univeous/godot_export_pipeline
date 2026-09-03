@@ -59,6 +59,8 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 
 它会写出 `tools/engine.build`，并按本机 OS 打印 SCons 命令：Windows、macOS、Linux/BSD 分别对应 `windows`、`macos`、`linuxbsd`。需要交叉编译时，在 `tools/export_analyzer.json` 里设置 `build_platform`，必要时再设置`build_arch`。另外也接受 `web`、`android` 和 `ios`。目标平台的工具链仍需您自己准备，并按对应平台的官方编译文档配置。
 
+打印的命令还会关掉项目用不到的引擎部分，依据是项目设置而不是猜测：渲染器为 Compatibility 时关掉 Vulkan/D3D12 后端，没有 ZIP 读取器时关掉 minizip；在 Godot 4.8 及更新版本上，还会关掉项目不用的那个 RenderingDevice 渲染器（`forward_plus_renderer=no`、`forward_mobile_renderer=no`，纯 Compatibility 项目则是 `rendering_device=no`，见 godotengine/godot#103100）。这几个渲染器选项只在当前编辑器为 4.8+ 时输出，因为更老的 SCons 构建不认识它们。
+
 编译完成后，在 Godot 的导出预设里把生成的可执行文件设为 custom template。build profile 会随着项目内容变化。正式发布前最好重新生成并重新编译一次；如果 SCons 缓存还在，通常不会重新编译全部文件。
 
 </details>
