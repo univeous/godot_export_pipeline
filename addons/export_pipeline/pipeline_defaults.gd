@@ -2,6 +2,10 @@
 ## drift between the two sides.
 extends RefCounted
 
+## Never exported regardless of analysis state — the analyzer excludes
+## res://tools/ from its inventory, and this addon must not ship itself.
+const ALWAYS_SKIP_PREFIXES := ["res://tools/", "res://addons/export_pipeline/"]
+
 ## Extension scripts loaded when the config has no "extensions" key.
 const DEFAULT_EXTENSIONS := [
 	"res://addons/export_pipeline/analyzer/ext/asset_registry.gd",
@@ -75,3 +79,19 @@ static func class_disable_conflicts(c: String) -> PackedStringArray:
 	if ClassDB.is_parent_class(c, "Node3D") or ClassDB.is_parent_class(c, "VisualInstance3D"):
 		opts.append("disable_3d")
 	return opts
+
+
+## Whether an export leaves `path` out: reported unused, under a skipped
+## prefix, or vetoed by an extension. The pruner decides with it per file at
+## export time; set_preset_exclusions.gd writes the same decision into a
+## preset beforehand, so the two lists cannot drift apart.
+static func skips(path: String, unused: Dictionary, prefixes: Array, extensions: Array) -> bool:
+	if unused.has(path):
+		return true
+	for prefix in prefixes:
+		if path.begins_with(String(prefix)):
+			return true
+	for e in extensions:
+		if e.has_method("should_skip") and e.should_skip(path):
+			return true
+	return false

@@ -35,6 +35,7 @@ PCK 修剪的效果见仁见智。如果您提前规划好了，项目里的所�
 - 如果项目没有通过拼接字符串等方式动态加载资源，通常到这里就够了。
 - 如果有，分析器会把无法判断的 `load()` / `ResourceLoader.load()` 写进警告和报告。把对应文件或目录加入`tools/export_analyzer.json` 的 `dynamic_load_whitelist`，重新分析即可。（这个方法其实并不是特别理想；白名单中的所有资源都会被导出，即使没有被实际用到；我有另外的一个插件可以较好地解决这个问题，不过我还没有准备好公开它）
 - 如果某个导出预设不想裁剪，在它的 custom features 中加入 `no_prune`。
+- 跳过的文件不会进 PCK，但 Godot 在导出插件运行之前就按预设的文件集合生成了导出包里的 UID 缓存和全局类列表，所以被跳过的文件（选**导出所有资源**时就是整个项目的文件）仍然以路径的形式留在那里。不想让这些文件名进包的话，命令行导出前先运行 `godot --headless --path . -s addons/export_pipeline/set_preset_exclusions.gd -- "<预设名>" [release|debug]`。它把同一份跳过清单写进预设的排除列表，由 Godot 自己把这些文件排除掉。它会改 `export_presets.cfg`：请先备份，导出后还原（和 `set_preset_template.gd` 一样）。
 - 可以从 **项目 > 工具 > Run Export Analysis** 手动分析。分析完成后会自动打开html报告，里面会说明哪些文件保留、哪些文件跳过，以及判断依据。
 
 第一次运行会自动创建 `tools/export_analyzer.json`。这个配置建议提交到版本控制；HTML/Markdown/JSON 报告和 prune log 通常不用提交。
@@ -126,7 +127,8 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 - 从导出态 ProjectSettings 中移除 editor-only autoload，不修改磁盘上的 `project.godot`；
 - 按需从导出的 TileSet 中移除未使用 source；（通过扩展）
 - 如果自定义 build profile 已经编译掉 navigation，则同步关闭导出场景里未使用的 TileMap navigation；
-- 写出 `tools/export_prune_log.json` 供检查。
+- 写出 `tools/export_prune_log.json` 供检查；
+- 报告有多少被跳过的文件仍然列在导出包的 UID 缓存和类列表里；预设的排除列表去掉了分析认为要用的文件时报错（比如没有还原的 `set_preset_exclusions.gd` 列表）。
 
 </details>
 

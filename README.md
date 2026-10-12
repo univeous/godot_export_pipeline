@@ -37,6 +37,7 @@ Export as usual, with the preset's resource filter set to **Export all resources
 - If the project does not load resources through paths assembled at runtime, this is usually all you need.
 - If it does, the analyzer reports `load()` / `ResourceLoader.load()` calls it cannot resolve. Add the relevant file or directory to `dynamic_load_whitelist` in `tools/export_analyzer.json`, then analyze again. (This is not really ideal: every resource on the whitelist is exported even if it is not actually used. I have another plugin that handles this problem better, but it is not ready to be made public yet.)
 - To disable pruning for one preset, add `no_prune` to its custom features.
+- Skipping a file keeps it out of the PCK, but Godot builds the exported UID cache and global class list from the preset's file set before export plugins run, so every skipped file (with **Export all resources**, every file in the project) is still listed there by path. If those file names should not ship, run `godot --headless --path . -s addons/export_pipeline/set_preset_exclusions.gd -- "<preset>" [release|debug]` before a command-line export. It writes the same skip list into the preset as an exclusion list, so Godot leaves the files out itself. It edits `export_presets.cfg`: back the file up first and restore it after the export, as with `set_preset_template.gd`.
 - Run **Project > Tools > Run Export Analysis** to analyze manually. The HTML report opens automatically and explains what is kept, what is skipped, and why.
 
 The first run creates `tools/export_analyzer.json`. I recommend committing this configuration. The generated HTML/Markdown/JSON reports and prune log usually do not need to be committed.
@@ -128,7 +129,8 @@ By default the plugin analyzes again before every export, then:
 - removes editor-only autoloads from the in-memory exported ProjectSettings without changing `project.godot` on disk;
 - removes unused sources from exported TileSets through an extension;
 - disables unused TileMap navigation in exported scenes when navigation has already been compiled out of the custom build profile;
-- writes `tools/export_prune_log.json` for inspection.
+- writes `tools/export_prune_log.json` for inspection;
+- reports how many skipped files are still listed in the exported UID cache and class list, and reports an error when the preset's exclusion list drops a file the analysis marks as used (for example a `set_preset_exclusions.gd` list that was never restored).
 
 </details>
 

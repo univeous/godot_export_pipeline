@@ -9,6 +9,13 @@ extends EditorExportPlugin
 ## anything the analyzer has not seen (e.g. files added after the last
 ## analysis) is exported normally.
 ##
+## Skipping keeps a file out of the PCK but not out of the exported UID
+## cache and global class list: Godot builds those from the preset's file
+## set before export plugins run. set_preset_exclusions.gd writes this
+## pruner's decision into the preset beforehand; _export_end reports how
+## many skipped files stayed listed, and _check_preset_exclusions catches a
+## leftover exclusion list that would drop used files.
+##
 ## Config (tools/export_analyzer.json):
 ##   prune_on_export: false          disables pruning entirely (default true)
 ##   prune_refresh_analysis: false   reuse the existing report instead of
@@ -46,9 +53,7 @@ const BUILD_PROFILE_PATH := "res://tools/engine.build"
 
 const PipelineDefaults := preload("pipeline_defaults.gd")
 
-## Never exported regardless of analysis state — the analyzer excludes
-## res://tools/ from its inventory, and this addon must not ship itself.
-const ALWAYS_SKIP_PREFIXES := ["res://tools/", "res://addons/export_pipeline/"]
+const ALWAYS_SKIP_PREFIXES := PipelineDefaults.ALWAYS_SKIP_PREFIXES
 
 var _enabled := false
 var _unused := {}
@@ -167,6 +172,7 @@ func _export_begin(features: PackedStringArray, is_debug: bool, path: String, fl
 
 	_warn_if_build_profile_stale(report)
 	_report_template_status()
+	_check_preset_exclusions(report)
 
 	_enabled = true
 	print("[export_pruner] pruning %d unused files (report generated %s, %d warnings)." % [
@@ -177,18 +183,7 @@ func _export_begin(features: PackedStringArray, is_debug: bool, path: String, fl
 func _export_file(path: String, type: String, features: PackedStringArray) -> void:
 	if not _enabled:
 		return
-	var prune := _unused.has(path)
-	if not prune:
-		for prefix in _extra_skip_prefixes:
-			if path.begins_with(prefix):
-				prune = true
-				break
-	if not prune:
-		for e in _ext:
-			if e.has_method("should_skip") and e.should_skip(path):
-				prune = true
-				break
-	if prune:
+	if PipelineDefaults.skips(path, _unused, _extra_skip_prefixes, _ext):
 		_skipped.append(path)
 		skip()
 
@@ -205,6 +200,11 @@ func _export_end() -> void:
 	if not _enabled:
 		return
 	_skipped.sort()
+	# Every file that reached _export_file was in Godot's export set, which
+	# the exported UID cache and global class list are built from before
+	# plugins run: what was skipped here is still listed there by path.
+	if not _skipped.is_empty():
+		print("[export_pruner] %d skipped file(s) are still listed by path in the exported UID cache / global class list (Godot builds those before export plugins run). Export through addons/export_pipeline/set_preset_exclusions.gd to leave them out (see README)." % _skipped.size())
 	var f := FileAccess.open(PRUNE_LOG_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify({
@@ -366,6 +366,30 @@ func _warn_if_build_profile_stale(report: Dictionary) -> void:
 	var msg := "[export_pruner] engine build profile is STALE — %d used class(es) are disabled in %s: %s. Regenerate it (addons/export_pipeline/build_profile_gen.gd) and recompile the custom template before shipping." % [stale.size(), BUILD_PROFILE_PATH, ", ".join(stale)]
 	push_warning(msg)
 	print("WARNING: " + msg)
+
+
+## A preset whose exclusion list drops files the analysis marks as used and
+## the pruner would export (typically a set_preset_exclusions.gd list left
+## behind by an interrupted run, after the project changed) exports without
+## them, and a skip()-based plugin cannot add them back. Say so loudly.
+func _check_preset_exclusions(report: Dictionary) -> void:
+	var preset := get_export_preset()
+	if preset == null or preset.get_export_filter() != EditorExportPreset.EXCLUDE_SELECTED_RESOURCES:
+		return
+	var used := {}
+	for path in report.get("used", []):
+		used[path] = true
+	var dropped: Array[String] = []
+	for path in preset.get_files_to_export():
+		# Files the pruner skips anyway (res://tools/, editor-only) lose nothing.
+		if used.has(path) and not PipelineDefaults.skips(path, _unused, _extra_skip_prefixes, _ext):
+			dropped.append(path)
+	if dropped.is_empty():
+		return
+	var msg := "[export_pruner] preset '%s' excludes %d file(s) the analysis marks as used — they will be MISSING from this export: %s. Restore export_presets.cfg or rerun set_preset_exclusions.gd." % [
+		preset.get_preset_name(), dropped.size(), ", ".join(dropped.slice(0, 10))]
+	push_error(msg)
+	print("ERROR: " + msg)
 
 
 func _autoloads_to_drop(config: Dictionary) -> Array[String]:
