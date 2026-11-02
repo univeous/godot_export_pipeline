@@ -344,23 +344,12 @@ func _warn_if_build_profile_stale(report: Dictionary) -> void:
 	if not FileAccess.file_exists(BUILD_PROFILE_PATH):
 		return
 	var profile := _load_json(BUILD_PROFILE_PATH)
-	var disabled := {}
-	for c in profile.get("disabled_classes", []):
-		disabled[c] = true
-	# disable_* build options compile out whole class families without ever
-	# listing them in disabled_classes (and the API closure may even keep
-	# them there enabled), so used classes must be checked against the
-	# options too — same class→option rules the generator decides with.
-	var disabled_opts: Dictionary = profile.get("disabled_build_options", {})
+	# (disable_* build options compile out whole class families without ever listing them in disabled_classes: the
+	# same class→option rules the generator decides with, in BuildProfileLint)
 	var stale: Array[String] = []
-	for c in report.get("engine_classes", []):
-		if disabled.has(String(c)):
-			stale.append(String(c))
-			continue
-		for opt in PipelineDefaults.class_disable_conflicts(String(c)):
-			if bool(disabled_opts.get(opt, false)):
-				stale.append("%s (compiled out by %s)" % [c, opt])
-				break
+	var left := BuildProfileLint.left_out(profile, report.get("engine_classes", []))
+	for c: String in left:
+		stale.append(c if left[c] == "disabled_classes" else "%s (compiled out by %s)" % [c, left[c]])
 	if stale.is_empty():
 		return
 	var msg := "[export_pruner] engine build profile is STALE — %d used class(es) are disabled in %s: %s. Regenerate it (addons/export_pipeline/build_profile_gen.gd) and recompile the custom template before shipping." % [stale.size(), BUILD_PROFILE_PATH, ", ".join(stale)]

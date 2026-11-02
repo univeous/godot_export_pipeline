@@ -141,6 +141,8 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 
 自定义模板必须实际测试。生成 PCK 后，用新模板运行它并检查 stderr。项目增加资源或功能后，旧的 build profile 可能已经过期；导出插件会检查一部分已知冲突，但不能替代完整的冒烟测试。
 
+想在导出之前就发现过期，可以在测试里调用 `BuildProfileLint.left_out_uses(["res://game"])`：它读你的脚本，列出每一处用到了被 profile 去掉的类（列在 `disabled_classes` 里，或者被某个 `disable_*` 选项整体编译掉），格式是 `路径:行 uses 类名 (原因)`。如果代码确实需要这个类，就重新生成 profile、重编模板。插件自己的检查用 `godot --headless --path . -s tests/run.gd` 运行。
+
 </details>
 
 <details>

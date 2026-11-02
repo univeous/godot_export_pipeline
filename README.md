@@ -143,6 +143,8 @@ By default the plugin analyzes again before every export, then:
 
 Always test a custom template. Export the PCK, run it with the new template, and check stderr. A profile can become stale after the project gains new content or features. The export plugin catches some known conflicts, but that check is not a replacement for a smoke test.
 
+To catch the drift before an export, call `BuildProfileLint.left_out_uses(["res://game"])` from a test: it reads your scripts and lists every use of a class the profile leaves out (in `disabled_classes`, or compiled out by a `disable_*` option), as `path:line uses Class (why)`. When a finding is a class the code now needs, regenerate the profile and rebuild the template. The plugin's own checks run with `godot --headless --path . -s tests/run.gd`.
+
 </details>
 
 <details>

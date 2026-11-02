@@ -1,0 +1,7 @@
+; The pipeline's own test project: tests/run.gd runs headless against addons/export_pipeline.
+config_version=5
+
+[application]
+
+config/name="export_pipeline tests"
+config/features=PackedStringArray("4.7")
