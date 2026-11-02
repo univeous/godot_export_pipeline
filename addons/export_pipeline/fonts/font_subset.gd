@@ -21,7 +21,8 @@ extends RefCounted
 ## whole.
 ##
 ## Run: godot --headless --path . -s addons/export_pipeline/fonts/font_subset_run.gd [-- --check]
-## Cutting needs hb-subset (harfbuzz) or uv (fonttools, fetched on the fly); checking needs neither.
+## Cutting needs hb-subset (harfbuzz), fonttools (python3 -m fontTools) or uv (fonttools fetched on the fly); checking
+## needs none of them.
 ## Traps written down where they bit:
 ## - the subsetters keep only name IDs 0-6 by default, dropping the licence (13, 14) the OFL wants carried: all kept;
 ## - layout features (vertical forms, kerning, ligatures) go unless asked for: all kept;
@@ -132,8 +133,8 @@ static func missing(cfg_path := CONFIG_PATH) -> Dictionary:
 	return {problems = problems, collected = collected.length()}
 
 
-## Cuts each config font to `keep` (a string of characters): hb-subset, else fonttools through uv. Returns "" or what
-## failed.
+## Cuts a face to `keep` (a string of characters) with the first subsetter the machine has: hb-subset (harfbuzz),
+## fonttools as a Python module (a CI container's python3-fonttools), fonttools fetched by uv. Returns "" or what failed.
 static func cut(source_abs: String, out_abs: String, keep: String) -> String:
 	var tmp := OS.get_cache_dir().path_join("font_subset_%d.txt" % Time.get_ticks_usec())
 	var f := FileAccess.open(tmp, FileAccess.WRITE)
@@ -142,19 +143,27 @@ static func cut(source_abs: String, out_abs: String, keep: String) -> String:
 	f.store_string(keep)
 	f.close()
 	DirAccess.make_dir_recursive_absolute(out_abs.get_base_dir())
-	var log := []
-	var rc := OS.execute("hb-subset", ["--font-file=" + source_abs, "--text-file=" + tmp, "--output-file=" + out_abs,
-		"--name-IDs=*", "--name-languages=*", "--layout-features=*", "--notdef-outline"], log, true)
-	if rc == -1:  # (no hb-subset here)
-		log.clear()
-		rc = OS.execute("uv", ["run", "-q", "--with", "fonttools", "pyftsubset", source_abs, "--text-file=" + tmp,
-			"--output-file=" + out_abs, "--name-IDs=*", "--name-languages=*", "--layout-features=*", "--notdef-outline",
-			"--no-glyph-names"], log, true)
-		if rc == -1:
-			DirAccess.remove_absolute(tmp)
-			return "neither hb-subset (harfbuzz) nor uv (fonttools) is installed"
+	var fonttools := [source_abs, "--text-file=" + tmp, "--output-file=" + out_abs, "--name-IDs=*", "--name-languages=*",
+		"--layout-features=*", "--notdef-outline", "--no-glyph-names"]
+	var tries := [
+		["hb-subset", ["--font-file=" + source_abs, "--text-file=" + tmp, "--output-file=" + out_abs, "--name-IDs=*",
+			"--name-languages=*", "--layout-features=*", "--notdef-outline"]],
+		["python3", ["-I", "-m", "fontTools.subset"] + fonttools],
+		["uv", ["run", "-q", "--with", "fonttools", "pyftsubset"] + fonttools],
+	]
+	var err := "neither hb-subset (harfbuzz) nor fonttools (python3 -m fontTools, or uv) is installed"
+	for t: Array in tries:
+		var log := []
+		var rc := OS.execute(t[0], t[1], log, true)
+		var text := "".join(log).strip_edges()
+		# (not on this machine: the next one -- Godot gives 127 and the shell's "command not found", not -1, for a program
+		# that is not there; a Python without fonttools says "No module named")
+		if rc == -1 or rc == 127 or (t[0] == "python3" and text.contains("No module named")):
+			continue
+		err = "" if rc == 0 else "%s failed (%d): %s" % [t[0], rc, text.left(400)]
+		break
 	DirAccess.remove_absolute(tmp)
-	return "" if rc == 0 else "the subsetter failed (%d): %s" % [rc, "".join(log).strip_edges().left(400)]
+	return err
 
 
 ## The quoted strings of GDScript or a scene, comments skipped ("a # in a string" stays a string).
