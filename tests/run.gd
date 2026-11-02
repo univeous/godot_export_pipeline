@@ -9,6 +9,7 @@ var _failed := 0
 
 func _initialize() -> void:
 	_build_profile_lint()
+	_font_subset()
 	print("export_pipeline: %d checks, %d failed" % [_checks, _failed])
 	quit(1 if _failed > 0 else 0)
 
@@ -62,3 +63,46 @@ func _remove(dir: String) -> void:
 	for d in DirAccess.get_directories_at(dir):
 		_remove(dir.path_join(d))
 	DirAccess.remove_absolute(dir)
+
+
+## FontSubset over the fixtures (tests/fixtures/fonts: a CSV, a dialogue, a script, a JSON, a skipped sample); the cut
+## and the check with a system face when one is here (a TTF the machine has: none is committed).
+func _font_subset() -> void:
+	_check(FontSubset.config("res://tests/fixtures/none.json").is_empty(), "no config: the feature is off")
+	_check(FontSubset.missing("res://tests/fixtures/none.json").has("skip"), "no config: a test skips")
+	var cfg := {roots = ["tests/fixtures/fonts/game"], skip = ["sample"], keep = ["ascii", "cjk_punct"], chars = "※"}
+	var got := FontSubset.collect(cfg)
+	for c in "你好两行早上好。字面单引三引号包名Hi\"you\"two":
+		_check(got.contains(c), "collected: %s (%s)" % [c, got])
+	for c in "注释尾文档采情境":
+		_check(not got.contains(c), "not collected (a comment, a sample, a context column): %s" % c)
+	_check(not FontSubset.collect({roots = cfg.roots, skip = ["sample"], types = ["csv", "dialogue", "gd"]}).contains("包"),
+		"a type not asked for is not read")
+	var keep := FontSubset.kept(cfg, got)
+	_check(keep.contains("A") and keep.contains("、") and keep.contains("※") and keep.contains("你"), "kept: the sets, the extras, the text")
+	_check(not keep.contains("中"), "a set not asked for is not kept")
+	var big := FontSubset.kept({keep = ["gb2312_1", "jis_1", "kana"]}, "")
+	_check(big.contains("中") and big.contains("あ") and big.length() > 5000, "the common sets: %d characters" % big.length())
+	_check(Array(FontSubset.string_literals("var a := \"x # y\"  # z\nvar b := 'q'")) == ["x # y", "q"], "a # in a string is no comment")
+	# the cut and the check: from a system face when the machine has one (and a subsetter)
+	var face := ""
+	for p in ["/System/Library/Fonts/Supplemental/Arial Unicode.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]:
+		if FileAccess.file_exists(p):
+			face = p
+			break
+	if face == "":
+		print("(font_subset: no system face here, the cut not tried)")
+		return
+	var out := OS.get_cache_dir().path_join("font_subset_test/sub.ttf")
+	var err := FontSubset.cut(face, out, "AB你")
+	if err.contains("neither"):
+		print("(font_subset: no subsetter here, the cut not tried)")
+		return
+	_check(err == "", "cut: %s" % err)
+	var full := FontFile.new()
+	full.load_dynamic_font(face)
+	var r: Array = FontSubset.check({fonts = [{source = face, out = out}]}, "AB你C")
+	_check(r.size() == 1 and r[0].present, "the subset is there: %s" % [r])
+	var want_missing := "C" if full.has_char("C".unicode_at(0)) else ""
+	_check(r[0].missing == want_missing, "what the face has and the subset lacks: %s" % [r])
+	_check(FileAccess.get_file_as_bytes(out).size() < FileAccess.get_file_as_bytes(face).size() / 4, "the subset is a fraction of the face")

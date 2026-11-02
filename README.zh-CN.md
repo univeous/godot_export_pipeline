@@ -152,6 +152,21 @@ godot --headless --path . -s addons/export_pipeline/build_profile_gen.gd
 
 </details>
 
+### 字体子集（可选）
+
+一套中日文字体有 10–20 MB，游戏真正显示的字只占很小一部分。`addons/export_pipeline/fonts/` 把字体裁到这些字，外加以后的文案或内容包可能用到的常用字集。项目里没有 `res://tools/font_subset.json` 时它什么也不做：
+
+```json
+{
+  "fonts": [{"source": "fonts_source/MyFace.ttf", "out": "fonts/MyFace.subset.ttf"}],
+  "roots": ["game", "i18n"],
+  "keep": ["ascii", "cjk_punct", "kana", "gb2312_1"],
+  "meta_out": "fonts/MyFace.subset.json"
+}
+```
+
+运行 `godot --headless --path . -s addons/export_pipeline/fonts/font_subset_run.gd`（需要 `hb-subset` 或 `uv`），加 `-- --check` 只检查不裁。收字的来源：翻译 CSV（除 key 列和 `?context` 列以外的每一列）、`.dialogue` 文件、脚本和场景里的字符串字面量（注释不会显示，不收）。可选的字集：`ascii`、`latin_ext`、`punct`、`cjk_punct`、`kana`、`gb2312_1`（3755 个常用汉字）、`jis_1`（2965 个常用汉字）。其他可选键：`skip`、`types`、`chars`、`chars_out`、`source_chars_out`、`meta`（原样写进来历文件）。测试里可以调用 `FontSubset.missing()`：列出游戏会显示、子集里却没有的字；项目没有配置、或者本机还没生成子集时返回 skip。完整字体放在带 `.gdignore` 的文件夹里，免得 Godot 导入并把它一起导出。
+
 ## 许可证
 
 [MIT](LICENSE)，Copyright © 2026 univeous。

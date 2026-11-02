@@ -154,6 +154,21 @@ Projects with special resource rules can add scripts to `extensions`. An extensi
 
 </details>
 
+### Font subsets (optional)
+
+A CJK face is 10–20 MB; the characters a game shows are a small part of it. `addons/export_pipeline/fonts/` cuts a face down to them, plus the common sets a later text or a content pack is likely to need. It does nothing unless the project has `res://tools/font_subset.json`:
+
+```json
+{
+  "fonts": [{"source": "fonts_source/MyFace.ttf", "out": "fonts/MyFace.subset.ttf"}],
+  "roots": ["game", "i18n"],
+  "keep": ["ascii", "cjk_punct", "kana", "gb2312_1"],
+  "meta_out": "fonts/MyFace.subset.json"
+}
+```
+
+Run `godot --headless --path . -s addons/export_pipeline/fonts/font_subset_run.gd` (needs `hb-subset` or `uv`), or add `-- --check` to only check. Characters come from translation CSVs (every column but the key and a `?context` column), `.dialogue` files, and the string literals of scripts and scenes (comments are never shown). Named sets: `ascii`, `latin_ext`, `punct`, `cjk_punct`, `kana`, `gb2312_1` (3755 common hanzi), `jis_1` (2965 common kanji). Optional keys: `skip`, `types`, `chars`, `chars_out`, `source_chars_out`, `meta` (copied into the provenance). A test can call `FontSubset.missing()`: it lists characters the game shows that a subset lacks, and skips when the project has no config or no subset has been made on this machine. Keep full faces in a `.gdignore` folder so Godot does not import and export them.
+
 ## License
 
 [MIT](LICENSE), Copyright © 2026 univeous.
