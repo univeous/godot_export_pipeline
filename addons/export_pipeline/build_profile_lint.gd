@@ -57,7 +57,7 @@ static func left_out_uses(roots: Array, profile_path := PROFILE_PATH, stats: Dic
 		stats["read"] = int(stats.get("read", 0)) + 1
 		var lines := text.split("\n")
 		for i in lines.size():
-			var line := _code_only(lines[i])
+			var line := code_only(lines[i])
 			var named := {}
 			for m in rx.search_all(line):
 				for g in range(1, 7):
@@ -91,7 +91,7 @@ static func _walk(dir: String, out: PackedStringArray) -> void:
 
 ## `line`'s code only: its strings blanked and its comment (a `#` outside a string to the end) cut — a class named in
 ## words is no use of it.
-static func _code_only(line: String) -> String:
+static func code_only(line: String) -> String:
 	var out := ""
 	var quote := ""
 	for i in line.length():

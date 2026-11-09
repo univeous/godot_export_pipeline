@@ -137,7 +137,7 @@ By default the plugin analyzes again before every export, then:
 <details>
 <summary><strong>How the custom export template is derived</strong></summary>
 
-`build_profile_gen.gd` combines engine classes found in the report, types stored inside used resources, engine identifiers in GDScript, objects in project settings, and the closure of API return/property types. It writes the result to `tools/engine.build`.
+`build_profile_gen.gd` combines engine classes found in the report, types stored inside used resources, engine identifiers in GDScript, objects in project settings, and the closure of API return/property types. It writes the result to `tools/engine.build`. A script's identifiers are read from its code only, as `BuildProfileLint` reads them: a class named in a comment or a string (`is_class("TextEdit")`, a theme type, a log line) is not a use of it; a class made by its name, `ClassDB.instantiate("TabBar")`, is. `build_profile_gen.gd`'s static `classes_named(code)` gives that list for a source.
 
 3D, navigation, physics, advanced GUI, texture transcoders, and the text server are kept from positive evidence. If the project uses reflection, runtime class names, or another entry point the analyzer cannot see, add the required module through `build_extra_modules`.
 

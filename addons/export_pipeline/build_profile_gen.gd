@@ -558,20 +558,38 @@ func _walk_value(value, visited: Dictionary) -> void:
 ## Engine-class identifiers mentioned in used scripts (static access,
 ## .new(), type hints) keep those classes. Comments are stripped so
 ## commented-out code doesn't keep classes alive.
+## The engine classes `code` (a script's source) names as code, each once: its comments and its strings left out — a
+## class named in words (`is_class("TextEdit")`, a theme type's name, a log line) is no use of it, as BuildProfileLint
+## reads a script; it kept six GUI classes a game never makes in a phone's engine, for a plugin's check of what a focused
+## control is — but a string handed to ClassDB.instantiate (a class made by its name).
+static func classes_named(code: String) -> PackedStringArray:
+	var out := PackedStringArray()
+	var made := RegEx.create_from_string("ClassDB\\.instantiate\\(\\s*[&^]?[\"']([A-Za-z0-9_]+)[\"']")
+	for m in made.search_all(code):
+		var c := m.get_string(1)
+		if ClassDB.class_exists(c) and not out.has(c):
+			out.append(c)
+	var ident := RegEx.create_from_string("\\b[A-Z][A-Za-z0-9]+\\b")
+	for line: String in code.split("\n"):
+		for m in ident.search_all(_LINT.code_only(line)):
+			var c := m.get_string(0)
+			if ClassDB.class_exists(c) and not out.has(c):
+				out.append(c)
+	return out
+
+
+const _LINT := preload("res://addons/export_pipeline/build_profile_lint.gd")
+
+
 func _collect_from_scripts(used: Array) -> void:
-	var re_ident := RegEx.create_from_string("\\b[A-Z][A-Za-z0-9]+\\b")
 	var re_comment := RegEx.create_from_string("(?m)#.*$")
 	for path in used:
 		if not String(path).ends_with(".gd"):
 			continue
-		var code := re_comment.sub(FileAccess.get_file_as_string(path), "", true)
-		var seen := {}
-		for m in re_ident.search_all(code):
-			var ident := m.get_string(0)
-			if not seen.has(ident):
-				seen[ident] = true
-				if ClassDB.class_exists(ident):
-					_evidence_class(ident, "identifier in %s" % path)
+		var source := FileAccess.get_file_as_string(path)
+		var code := re_comment.sub(source, "", true)
+		for c in classes_named(source):
+			_evidence_class(c, "identifier in %s" % path)
 		# The nav servers are in ESSENTIALS, so _keep can't tell whether a
 		# script actually talks to them — check the source text directly.
 		if code.contains("NavigationServer2D"):

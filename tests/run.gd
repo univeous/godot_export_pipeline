@@ -9,6 +9,7 @@ var _failed := 0
 
 func _initialize() -> void:
 	_build_profile_lint()
+	_classes_named()
 	_font_subset()
 	print("export_pipeline: %d checks, %d failed" % [_checks, _failed])
 	quit(1 if _failed > 0 else 0)
@@ -47,6 +48,22 @@ func _build_profile_lint() -> void:
 	var why := BuildProfileLint.left_out({"disabled_classes": ["Curve3D"], "disabled_build_options": {"disable_3d": true}},
 		["Curve3D", "MeshInstance3D", "Label"])
 	_check(why == {"Curve3D": "disabled_classes", "MeshInstance3D": "disable_3d"}, "left_out says why, a kept class absent: %s" % [why])
+
+
+## build_profile_gen reads a script's classes as BuildProfileLint does: its code's, not its comments' or its strings' — a
+## check of a control's class by name (is_class) keeps no class in the engine — but a class made by its name
+## (ClassDB.instantiate) is kept.
+func _classes_named() -> void:
+	var gen := preload("res://addons/export_pipeline/build_profile_gen.gd")
+	var code := "\n".join(PackedStringArray([
+		"var a := Sprite2D.new()  # a Tree in a comment",
+		"if c.is_class(&\"TextEdit\") or c.is_class(\"ItemList\"):",
+		"\tprint(\"GraphEdit said, # not a comment\")",
+		"var made := ClassDB.instantiate(\"TabBar\")",
+		"var t: Timer = null"]))
+	var got := Array(gen.classes_named(code))
+	got.sort()
+	_check(got == ["ClassDB", "Sprite2D", "TabBar", "Timer"], "classes named as code, and one made by its name — none in words: %s" % [got])
 
 
 func _write(path: String, text: String) -> void:
